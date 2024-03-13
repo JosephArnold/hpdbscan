@@ -2,7 +2,7 @@
 
 template<>
 Cluster<std::int32_t> SpatialIndex<float, std::int32_t>::template region_query(
-        const std::int32_t point_index,
+        const int32_t point_index,
         const std::vector<std::int32_t>& neighboring_points,
         const float EPS2,
         const Clusters<std::int32_t>& clusters,

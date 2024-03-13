@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
     cxxopts::Options parser("HPDBSCAN", "Highly parallel DBSCAN clustering algorithm");
     parser.add_options()
         ("h, help", "this help message")
-        ("m, minPoints", "density threshold", cxxopts::value<std::size_t>()->default_value("2"))
+        ("m, minPoints", "density threshold", cxxopts::value<size_t>()->default_value("2"))
         ("e, epsilon", "spatial search radius", cxxopts::value<float>()->default_value("0.1"))
         ("t, threads", "utilized threads", cxxopts::value<int>()->default_value(std::to_string(omp_get_max_threads())))
         ("i, input", "input file", cxxopts::value<std::string>()->default_value("data.h5"))
@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
     try {
         HPDBSCAN<index_type> hpdbscan(
                 arguments["epsilon"].as<float>(), 
-                arguments["minPoints"].as<std::size_t>());
+                arguments["minPoints"].as<size_t>());
         clusters = hpdbscan.cluster(
             arguments["input"].as<std::string>(),
             arguments["input-dataset"].as<std::string>(),

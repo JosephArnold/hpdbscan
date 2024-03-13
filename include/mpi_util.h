@@ -15,7 +15,6 @@
 #define MPI_UTIL_H
 
 #include <cstdint>
-#include <stdexcept>
 #include <type_traits>
 
 #include <mpi.h>

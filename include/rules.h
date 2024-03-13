@@ -49,7 +49,7 @@ public:
         return NOT_VISITED<index_type>;
     }
 
-    inline std::size_t size() const {
+    inline size_t size() const {
         return m_rules.size();
     }
 

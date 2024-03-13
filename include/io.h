@@ -60,7 +60,7 @@ public:
         }
 
         H5T_class_t type_class = H5Tget_class(type_handle);
-        std::size_t precision = H5Tget_precision(type_handle);
+        size_t precision = H5Tget_precision(type_handle);
 
 
         H5Fclose(file_handle);

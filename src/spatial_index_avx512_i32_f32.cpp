@@ -16,17 +16,17 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
         const Clusters<index_type>& clusters,
         std::vector<index_type>& min_points_area,
         index_type& count) const {
-    const std::size_t dimensions = static_cast<std::size_t>(m_data.m_chunk[1]);
+    const size_t dimensions = static_cast<size_t>(m_data.m_chunk[1]);
     const float* point = &m_data.m_elements[point_index * dimensions];
     const float* np_ptr = m_data.m_elements.data();
-    const std::size_t precision = sizeof(float);
+    const size_t precision = sizeof(float);
     Cluster<index_type> cluster_label = m_global_point_offset + point_index + 1;
-    const std::size_t ElementsPerAVX = sizeof(__m512) / precision;
-    std::size_t elements_in_vector = ElementsPerAVX;
+    const size_t ElementsPerAVX = sizeof(__m512) / precision;
+    size_t elements_in_vector = ElementsPerAVX;
 
     //  Align memory (This has to be done while data loading, not here. )
     // Initialize array pointers and masks
-    std::size_t n = neighboring_points.size();
+    size_t n = neighboring_points.size();
     min_points_area = std::vector<index_type>(n, NOT_VISITED<index_type>);
 
     __m512 v_eps = _mm512_set1_ps(EPS2);
@@ -40,13 +40,13 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
     __m512 v_point_z = _mm512_set1_ps(point[2]);
 
 #if defined(USE_8X_NEIGHBOUR_LOOP_UNROLL)
-    constexpr std::size_t vectors_per_loop = 8;
-    std::size_t loop_elements = elements_in_vector*vectors_per_loop;
-    std::size_t rest = n % loop_elements;
-    std::size_t chunks = n/loop_elements;
+    constexpr size_t vectors_per_loop = 8;
+    size_t loop_elements = elements_in_vector*vectors_per_loop;
+    size_t rest = n % loop_elements;
+    size_t chunks = n/loop_elements;
 
-    for (std::size_t j = 0; j < chunks; j++) {
-        std::size_t i = j*loop_elements;
+    for (size_t j = 0; j < chunks; j++) {
+        size_t i = j*loop_elements;
         // No need for masks in unrolled loop 
         __m512i v_indices1 = _mm512_loadu_epi32(&neighboring_points[i+elements_in_vector*0]);
         __m512i v_indices2 = _mm512_loadu_epi32(&neighboring_points[i+elements_in_vector*1]);
@@ -228,15 +228,15 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
         _mm512_mask_storeu_epi32(&min_points_area[i+elements_in_vector*6], v_eps_mask7, v_indices7);
         _mm512_mask_storeu_epi32(&min_points_area[i+elements_in_vector*7], v_eps_mask8, v_indices8);
     }
-    for (std::size_t i = n-rest; i < n; i += elements_in_vector) {
+    for (size_t i = n-rest; i < n; i += elements_in_vector) {
 #elif defined(USE_4X_NEIGHBOUR_LOOP_UNROLL)
-    constexpr std::size_t vectors_per_loop = 4;
-    std::size_t loop_elements = elements_in_vector*vectors_per_loop;
-    std::size_t rest = n % loop_elements;
-    std::size_t chunks = n/loop_elements;
+    constexpr size_t vectors_per_loop = 4;
+    size_t loop_elements = elements_in_vector*vectors_per_loop;
+    size_t rest = n % loop_elements;
+    size_t chunks = n/loop_elements;
 
-    for (std::size_t j = 0; j < chunks; j++) {
-        std::size_t i = j*loop_elements;
+    for (size_t j = 0; j < chunks; j++) {
+        size_t i = j*loop_elements;
         // No need for masks in unrolled loop 
         __m512i v_indices1 = _mm512_loadu_epi32(&neighboring_points[i+elements_in_vector*0]);
         __m512i v_indices2 = _mm512_loadu_epi32(&neighboring_points[i+elements_in_vector*1]);
@@ -338,9 +338,9 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
         _mm512_mask_storeu_epi32(&min_points_area[i+elements_in_vector*2], v_eps_mask3, v_indices3);
         _mm512_mask_storeu_epi32(&min_points_area[i+elements_in_vector*3], v_eps_mask4, v_indices4);
     }
-    for (std::size_t i = n-rest; i < n; i += elements_in_vector) {
+    for (size_t i = n-rest; i < n; i += elements_in_vector) {
 #else
-    for (std::size_t i = 0; i < n; i += elements_in_vector) {
+    for (size_t i = 0; i < n; i += elements_in_vector) {
 #endif
         // Mask
         __mmask16 mask = ( n - i > ElementsPerAVX ) ? (1 << 16) - 1 : ((1 << ( n - i )) - 1);
@@ -399,7 +399,7 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized(
         const Clusters<index_type>& clusters,
         std::vector<index_type>& min_points_area,
         index_type& count) const {
-    const std::size_t dimensions = static_cast<std::size_t>(m_data.m_chunk[1]);
+    const size_t dimensions = static_cast<size_t>(m_data.m_chunk[1]);
 #if defined(USE_ND_OPTIMIZATIONS)
     if (3 == dimensions)
     {
@@ -415,13 +415,13 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized(
 #endif
     const float* point = &m_data.m_elements[point_index * dimensions];
     const float* np_ptr = m_data.m_elements.data();
-    const std::size_t precision = sizeof(float);
+    const size_t precision = sizeof(float);
     Cluster<index_type> cluster_label = m_global_point_offset + point_index + 1;
-    const std::size_t ElementsPerAVX = sizeof(__m512) / precision;
+    const size_t ElementsPerAVX = sizeof(__m512) / precision;
 
     //  Align memory (This has to be done while data loading, not here. )
     // Initialize array pointers and masks
-    std::size_t npoints = neighboring_points.size();
+    size_t npoints = neighboring_points.size();
     min_points_area = std::vector<index_type>(npoints, NOT_VISITED<index_type>);
 
     __m512 v_eps = _mm512_set1_ps(EPS2);
@@ -444,7 +444,7 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized(
     // std::cout << "V_DIMS: ";
     // print_m512i(v_dims);
 
-    for (std::size_t i = 0; i < npoints; i += ElementsPerAVX){
+    for (size_t i = 0; i < npoints; i += ElementsPerAVX){
         // Mask
         __mmask16 mask = ( npoints - i > ElementsPerAVX ) ? (1 << 16) - 1 : ((1 << ( npoints - i )) - 1);
         // Load index into mm512
@@ -459,7 +459,7 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized(
         __m512 v_results = _mm512_setzero_ps();
 
         // Loop over dimensions
-        for (std::size_t d = 0; d < dimensions; d++){
+        for (size_t d = 0; d < dimensions; d++){
             // Load dimension d of current point
             __m512 v_current_point_dim = _mm512_set1_ps(point[d]);
             // std::cout << "V_CURRENT_POINT_DIM: ";

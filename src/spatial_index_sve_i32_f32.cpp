@@ -26,20 +26,20 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
 
     Cluster<index_type> cluster_label = m_global_point_offset + point_index + 1;
 
-    std::size_t n = neighboring_points.size();
+    size_t n = neighboring_points.size();
 
     min_points_area = std::vector<index_type>(n, NOT_VISITED<index_type>);
 
 
 #if defined(USE_8X_NEIGHBOUR_LOOP_UNROLL)
-    constexpr std::size_t vectors_per_loop = 8;
-    std::size_t elements_in_vector = svcntw();
-    std::size_t loop_elements = elements_in_vector*vectors_per_loop;
-    std::size_t rest = n % loop_elements;
-    std::size_t chunks = n/loop_elements;
+    constexpr size_t vectors_per_loop = 8;
+    size_t elements_in_vector = svcntw();
+    size_t loop_elements = elements_in_vector*vectors_per_loop;
+    size_t rest = n % loop_elements;
+    size_t chunks = n/loop_elements;
 
-    for (std::size_t j = 0; j < chunks; j++) {
-        std::size_t i = j*loop_elements;
+    for (size_t j = 0; j < chunks; j++) {
+        size_t i = j*loop_elements;
 
         // no masking for unrolled loop
         // svbool_t pg = svwhilelt_b32(i, n);
@@ -238,16 +238,16 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
         svst1_s32(mask8, &min_points_area[i+7*elements_in_vector], sv_indices8);
 
     }
-    for (std::size_t i = n-rest; i < n; i += svcntw()) {
+    for (size_t i = n-rest; i < n; i += svcntw()) {
 #elif defined(USE_4X_NEIGHBOUR_LOOP_UNROLL)
-    constexpr std::size_t vectors_per_loop = 4;
-    std::size_t elements_in_vector = svcntw();
-    std::size_t loop_elements = elements_in_vector*vectors_per_loop;
-    std::size_t rest = n % loop_elements;
-    std::size_t chunks = n/loop_elements;
+    constexpr size_t vectors_per_loop = 4;
+    size_t elements_in_vector = svcntw();
+    size_t loop_elements = elements_in_vector*vectors_per_loop;
+    size_t rest = n % loop_elements;
+    size_t chunks = n/loop_elements;
 
-    for (std::size_t j = 0; j < chunks; j++) {
-        std::size_t i = j*loop_elements;
+    for (size_t j = 0; j < chunks; j++) {
+        size_t i = j*loop_elements;
 
         // no masking for unrolled loop
         // svbool_t pg = svwhilelt_b32(i, n);
@@ -375,9 +375,9 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
         svst1_s32(mask4, &min_points_area[i+3*elements_in_vector], sv_indices4);
 
     }
-    for (std::size_t i = n-rest; i < n; i += svcntw()) {
+    for (size_t i = n-rest; i < n; i += svcntw()) {
 #else
-    for (std::size_t i = 0; i < n; i += svcntw()) {
+    for (size_t i = 0; i < n; i += svcntw()) {
 #endif
 
         svbool_t pg = svwhilelt_b32(i, n);
@@ -386,7 +386,7 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized_nd<3
 
         svint32_t sv_indices_scaled = svmul_n_s32_z(pg, sv_indices, dimensions);
 
-        //for(std::size_t d = 0; d < dimensions; d++) {
+        //for(size_t d = 0; d < dimensions; d++) {
 
         //    svfloat32_t point_coordinate_v = svdup_n_f32(point[d]); 
 
@@ -474,12 +474,12 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized(
 
     Cluster<index_type> cluster_label = m_global_point_offset + point_index + 1;
 
-    std::size_t n = neighboring_points.size();
+    size_t n = neighboring_points.size();
 
     min_points_area = std::vector<index_type>(n, NOT_VISITED<index_type>);
 
 
-    for (std::size_t i = 0; i < n; i += svcntw()) {
+    for (size_t i = 0; i < n; i += svcntw()) {
 
         svbool_t pg = svwhilelt_b32(i, n);
 
@@ -489,7 +489,7 @@ Cluster<index_type> SpatialIndex<float, index_type>::region_query_optimized(
 
         svfloat32_t results_v = svdup_n_f32(0.0f);
 
-        for(std::size_t d = 0; d < dimensions; d++) {
+        for(size_t d = 0; d < dimensions; d++) {
 
             svfloat32_t point_coordinate_v = svdup_n_f32(point[d]); 
 

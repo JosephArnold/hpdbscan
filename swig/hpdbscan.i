@@ -28,7 +28,7 @@ namespace std {
 
  class HPDBSCAN {
  public:
-     HPDBSCAN(float epsilon, std::size_t min_points);
+     HPDBSCAN(float epsilon, size_t min_points);
      template<typename index_type>
      std::vector<index_type> cluster(const std::string& path,
                                      const std::string& dataset);

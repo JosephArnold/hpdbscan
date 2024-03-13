@@ -25,20 +25,20 @@
 #include "dynamic_aligned_allocator.hpp"
 
 using ssize_t       = ptrdiff_t;
-using Locator       = std::pair<std::size_t, std::size_t>;
+using Locator       = std::pair<size_t, size_t>;
 template <typename index_type>
 using Clusters = typename std::vector<index_type>;
 template <typename index_type>
 using Cluster = index_type;
-using Cell          = std::size_t;
+using Cell          = size_t;
 using Cells         = std::vector<Cell>;
-using CellHistogram = std::map<Cell, std::size_t>;
+using CellHistogram = std::map<Cell, size_t>;
 using CellIndex     = std::map<Cell, Locator>;
-using CellBounds    = std::array<std::size_t, 4>;
-using ComputeBounds = std::array<std::size_t, 2>;
+using CellBounds    = std::array<size_t, 4>;
+using ComputeBounds = std::array<size_t, 2>;
 using Cuts          = std::vector<Locator>;
 
-constexpr std::size_t  BITS_PER_BYTE = 8;
+constexpr size_t  BITS_PER_BYTE = 8;
 template<typename index_type>
 inline constexpr index_type NOT_VISITED = std::numeric_limits<index_type>::max();
 template<typename index_type>
@@ -64,6 +64,6 @@ constexpr std::array RADIX_POWERS {
         100000000000000000LLU,
         1000000000000000000LLU,
 };
-constexpr std::size_t RADIX_BUCKETS = 10; // radix sort buckets
+constexpr size_t RADIX_BUCKETS = 10; // radix sort buckets
 
 #endif // CONSTANTS_H

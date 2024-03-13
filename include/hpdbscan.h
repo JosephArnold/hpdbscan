@@ -45,7 +45,7 @@
 template<typename index_type>
 class HPDBSCAN {
     float m_epsilon;
-    std::size_t m_min_points;
+    size_t m_min_points;
 
     #ifdef WITH_MPI
     int m_rank;
@@ -57,8 +57,8 @@ class HPDBSCAN {
     Rules<index_type> local_dbscan(Clusters<index_type>& clusters, 
             const SpatialIndex<data_type, index_type>& index) {
         const float EPS2 = m_epsilon * m_epsilon;
-        const std::size_t lower = index.lower_halo_bound();
-        const std::size_t upper = index.upper_halo_bound();
+        const size_t lower = index.lower_halo_bound();
+        const size_t upper = index.upper_halo_bound();
 
 
         Rules<index_type> rules;
@@ -95,7 +95,7 @@ class HPDBSCAN {
                 cluster_label = index.region_query(point, neighboring_points, EPS2, clusters, min_points_area, count);
             }
 
-            if (static_cast<std::size_t>(count) >= m_min_points) {
+            if (static_cast<size_t>(count) >= m_min_points) {
                 // set the label to be negative as to mark it as core point
                 // NOTE: unary operator promotes shorter types to int, so explicitly cast
                 atomic_min(clusters.data() + point, 
@@ -149,7 +149,7 @@ class HPDBSCAN {
         // exchange the number of points in the halos
         std::vector<int> send_counts(m_size, 0);
         std::vector<int> recv_counts(m_size, 0);
-        for (std::size_t i = 0; i < cuts.size(); ++i) {
+        for (size_t i = 0; i < cuts.size(); ++i) {
             send_counts[i] = static_cast<int>(cuts[i].second - cuts[i].first);
         }
         MPI_Alltoall(send_counts.data(), 1, MPI_INT32_T,
@@ -158,16 +158,16 @@ class HPDBSCAN {
         // accumulate the numbers of points from each node
         std::vector<int> send_displs(m_size, 0);
         std::vector<int> recv_displs(m_size, 0);
-        std::size_t total_items_to_receive = 0;
+        size_t total_items_to_receive = 0;
         for (int i = 0; i < m_size; ++i) {
             send_displs[i] = cuts[i].first;
             recv_displs[i] = total_items_to_receive;
-            total_items_to_receive += static_cast<std::size_t>(recv_counts[i]);
+            total_items_to_receive += static_cast<size_t>(recv_counts[i]);
         }
 
         // create a buffer for the incoming cluster labels and exchange them
-        const std::size_t upper_halo_bound = index.upper_halo_bound();
-        const std::size_t lower_halo_bound = index.lower_halo_bound();
+        const size_t upper_halo_bound = index.upper_halo_bound();
+        const size_t lower_halo_bound = index.lower_halo_bound();
         Clusters<index_type> halo_labels(total_items_to_receive);
 
         MPI_Alltoallv(
@@ -176,11 +176,11 @@ class HPDBSCAN {
         );
 
         // update the local clusters with the received information
-        for (std::size_t i = 0; i < m_size; ++i) {
-            std::size_t offset = (i < m_rank ? lower_halo_bound : upper_halo_bound - recv_counts[i]);
+        for (size_t i = 0; i < m_size; ++i) {
+            size_t offset = (i < m_rank ? lower_halo_bound : upper_halo_bound - recv_counts[i]);
 
-            for (std::size_t j = 0; j < recv_counts[i]; ++j) {
-                const std::size_t index = j + offset;
+            for (size_t j = 0; j < recv_counts[i]; ++j) {
+                const size_t index = j + offset;
                 const Cluster<index_type> own_cluster = clusters[index];
                 const Cluster<index_type> halo_cluster = halo_labels[j + recv_displs[i]];
 
@@ -214,7 +214,7 @@ class HPDBSCAN {
                      recv_counts.data(), 1, MPI_INT32_T, MPI_COMM_WORLD);
 
         // ... based on that calculate the displacements into the receive buffer
-        std::size_t total = 0;
+        size_t total = 0;
         for (int i = 0; i < m_size; ++i) {
             recv_displs[i] = total;
             total += recv_counts[i];
@@ -222,7 +222,7 @@ class HPDBSCAN {
 
         // serialize the rules
         Clusters<index_type> serialized_rules(send_counts[m_rank]);
-        std::size_t index = 0;
+        size_t index = 0;
         for (const auto& rule : rules) {
             serialized_rules[index++] = rule.first;
             serialized_rules[index++] = rule.second;
@@ -234,7 +234,7 @@ class HPDBSCAN {
             serialized_rules.data(), send_counts.data(), send_displs.data(), get_mpi_type<index_type>(),
             incoming_rules.data(),   recv_counts.data(), recv_displs.data(), get_mpi_type<index_type>(), MPI_COMM_WORLD
         );
-        for (std::size_t i = 0; i < total; i += 2) {
+        for (size_t i = 0; i < total; i += 2) {
             rules.update(incoming_rules[i], incoming_rules[i + 1]);
         }
     }
@@ -242,7 +242,7 @@ class HPDBSCAN {
 
     void apply_rules(Clusters<index_type>& clusters, const Rules<index_type>& rules) {
         #pragma omp parallel for
-        for (std::size_t i = 0; i < clusters.size(); ++i) {
+        for (size_t i = 0; i < clusters.size(); ++i) {
             const bool is_core = clusters[i] < 0;
             Cluster<index_type> cluster = std::abs(clusters[i]);
             Cluster<index_type> matching_rule = rules.rule(cluster);
@@ -259,12 +259,12 @@ class HPDBSCAN {
     template<typename data_type>
     void summarize(const Dataset<data_type>& dataset, const Clusters<index_type>& clusters) const {
         std::unordered_set<Cluster<index_type>> unique_clusters;
-        std::size_t cluster_points = 0;
-        std::size_t core_points = 0;
-        std::size_t noise_points = 0;
+        size_t cluster_points = 0;
+        size_t core_points = 0;
+        size_t noise_points = 0;
 
         // iterate through the points and sum up the
-        for (std::size_t i = 0; i < dataset.m_chunk[0]; ++i) {
+        for (size_t i = 0; i < dataset.m_chunk[0]; ++i) {
             const Cluster<index_type> cluster = clusters[i];
             unique_clusters.insert(std::abs(cluster));
 
@@ -277,7 +277,7 @@ class HPDBSCAN {
                 ++core_points;
             }
         }
-        std::size_t metrics[] = {cluster_points, noise_points, core_points};
+        size_t metrics[] = {cluster_points, noise_points, core_points};
 
         #ifdef WITH_MPI
         int number_of_unique_clusters = static_cast<int>(unique_clusters.size());
@@ -298,7 +298,7 @@ class HPDBSCAN {
         std::copy(unique_clusters.begin(), unique_clusters.end(), local_buffer.begin());
 
         // sum up the total number of elements on the MPI root to determine the global buffer size
-        std::size_t buffer_size = 0;
+        size_t buffer_size = 0;
         if (m_rank == 0) {
             for (int i = 0; i < m_size; ++i) {
                 set_displs[i] = buffer_size;
@@ -314,7 +314,7 @@ class HPDBSCAN {
         );
         // accumulate the metrics of each node
         MPI_Reduce(
-            m_rank == 0 ? MPI_IN_PLACE : metrics, metrics, sizeof(metrics) / sizeof(std::size_t),
+            m_rank == 0 ? MPI_IN_PLACE : metrics, metrics, sizeof(metrics) / sizeof(size_t),
             MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD
         );
 
@@ -332,7 +332,7 @@ class HPDBSCAN {
     #endif
 
 public:
-    HPDBSCAN(float epsilon, std::size_t min_points) : m_epsilon(epsilon), m_min_points(min_points) {
+    HPDBSCAN(float epsilon, size_t min_points) : m_epsilon(epsilon), m_min_points(min_points) {
         #ifdef WITH_MPI
         MPI_Comm_rank(MPI_COMM_WORLD, &m_rank);
         MPI_Comm_size(MPI_COMM_WORLD, &m_size);
@@ -438,7 +438,7 @@ public:
             }
             #endif
             merge_halos(clusters, rules, index);
-            // MPI_Barrier(MPI_COMM_WORLD);
+            MPI_Barrier(MPI_COMM_WORLD);
             distribute_rules(rules);
             #ifdef WITH_OUTPUT
             if (m_rank == 0) {
@@ -507,7 +507,7 @@ public:
 
     template <typename data_type>
     Clusters<index_type> cluster(data_type* data, int dim0, int dim1, int threads) {
-        std::size_t chunk[2] = {static_cast<std::size_t>(dim0), static_cast<std::size_t>(dim1)};
+        hsize_t chunk[2] = {static_cast<hsize_t>(dim0), static_cast<hsize_t>(dim1)};
         Dataset<data_type> dataset(data, chunk, get_hdf5_type<data_type>());
 
         return cluster<data_type, index_type>(dataset, threads);

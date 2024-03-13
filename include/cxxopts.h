@@ -27,7 +27,6 @@ THE SOFTWARE.
 
 #include <cstring>
 #include <cctype>
-#include <cstdint>
 #include <exception>
 #include <iostream>
 #include <map>
@@ -51,7 +50,7 @@ THE SOFTWARE.
 namespace cxxopts
 {
   static constexpr struct {
-    std::uint8_t major, minor, patch;
+    uint8_t major, minor, patch;
   } version = {
     CXXOPTS__VERSION_MAJOR,
     CXXOPTS__VERSION_MINOR,
@@ -80,11 +79,11 @@ namespace cxxopts
   }
 
   class UnicodeStringIterator : public
-    std::iterator<std::forward_iterator_tag, std::int32_t>
+    std::iterator<std::forward_iterator_tag, int32_t>
   {
     public:
 
-    UnicodeStringIterator(const icu::UnicodeString* string, std::int32_t pos)
+    UnicodeStringIterator(const icu::UnicodeString* string, int32_t pos)
     : s(string)
     , i(pos)
     {
@@ -116,14 +115,14 @@ namespace cxxopts
     }
 
     UnicodeStringIterator
-    operator+(std::int32_t v)
+    operator+(int32_t v)
     {
       return UnicodeStringIterator(s, i + v);
     }
 
     private:
     const icu::UnicodeString* s;
-    std::int32_t i;
+    int32_t i;
   };
 
   inline
@@ -159,7 +158,7 @@ namespace cxxopts
   }
 
   inline
-  std::size_t
+  size_t
   stringLength(const String& s)
   {
     return s.length();
@@ -215,7 +214,7 @@ namespace cxxopts
   }
 
   inline
-  std::size_t
+  size_t
   stringLength(const String& s)
   {
     return s.length();
@@ -230,7 +229,7 @@ namespace cxxopts
 
   inline
   String&
-  stringAppend(String& s, std::size_t n, char c)
+  stringAppend(String& s, size_t n, char c)
   {
     return s.append(n, c);
   }
@@ -548,7 +547,7 @@ namespace cxxopts
       constexpr auto umax = std::numeric_limits<US>::max();
       constexpr bool is_signed = std::numeric_limits<T>::is_signed;
       const bool negative = match.length(1) > 0;
-      const std::uint8_t base = match.length(2) > 0 ? 16 : 10;
+      const uint8_t base = match.length(2) > 0 ? 16 : 10;
 
       auto value_match = match[3];
 
@@ -609,56 +608,56 @@ namespace cxxopts
 
     inline
     void
-    parse_value(const std::string& text, std::uint8_t& value)
+    parse_value(const std::string& text, uint8_t& value)
     {
       integer_parser(text, value);
     }
 
     inline
     void
-    parse_value(const std::string& text, std::int8_t& value)
+    parse_value(const std::string& text, int8_t& value)
     {
       integer_parser(text, value);
     }
 
     inline
     void
-    parse_value(const std::string& text, std::uint16_t& value)
+    parse_value(const std::string& text, uint16_t& value)
     {
       integer_parser(text, value);
     }
 
     inline
     void
-    parse_value(const std::string& text, std::int16_t& value)
+    parse_value(const std::string& text, int16_t& value)
     {
       integer_parser(text, value);
     }
 
     inline
     void
-    parse_value(const std::string& text, std::uint32_t& value)
+    parse_value(const std::string& text, uint32_t& value)
     {
       integer_parser(text, value);
     }
 
     inline
     void
-    parse_value(const std::string& text, std::int32_t& value)
+    parse_value(const std::string& text, int32_t& value)
     {
       integer_parser(text, value);
     }
 
     inline
     void
-    parse_value(const std::string& text, std::uint64_t& value)
+    parse_value(const std::string& text, uint64_t& value)
     {
       integer_parser(text, value);
     }
 
     inline
     void
-    parse_value(const std::string& text, std::int64_t& value)
+    parse_value(const std::string& text, int64_t& value)
     {
       integer_parser(text, value);
     }
@@ -1030,7 +1029,7 @@ namespace cxxopts
       m_value->parse();
     }
 
-    std::size_t
+    size_t
     count() const
     {
       return m_count;
@@ -1058,7 +1057,7 @@ namespace cxxopts
     }
 
     std::shared_ptr<Value> m_value;
-    std::size_t m_count = 0;
+    size_t m_count = 0;
   };
 
   class KeyValue
@@ -1107,7 +1106,7 @@ namespace cxxopts
       bool allow_unrecognised,
       int&, char**&);
 
-    std::size_t
+    size_t
     count(const std::string& o) const
     {
       auto iter = m_options.find(o);
@@ -1390,8 +1389,8 @@ namespace cxxopts
     format_description
     (
       const HelpOptionDetails& o,
-      std::size_t start,
-      std::size_t width
+      size_t start,
+      size_t width
     )
     {
       auto desc = o.desc;
@@ -1407,7 +1406,7 @@ namespace cxxopts
       auto startLine = current;
       auto lastSpace = current;
 
-      auto size = std::size_t{};
+      auto size = size_t{};
 
       while (current != std::end(desc))
       {
@@ -1896,7 +1895,7 @@ Options::help_one_group(const std::string& g) const
 
   OptionHelp format;
 
-  std::size_t longest = 0;
+  size_t longest = 0;
 
   String result;
 
@@ -1919,10 +1918,10 @@ Options::help_one_group(const std::string& g) const
     format.push_back(std::make_pair(s, String()));
   }
 
-  longest = std::min(longest, static_cast<std::size_t>(OPTION_LONGEST));
+  longest = std::min(longest, static_cast<size_t>(OPTION_LONGEST));
 
   //widest allowed description
-  auto allowed = std::size_t{76} - longest - OPTION_DESC_GAP;
+  auto allowed = size_t{76} - longest - OPTION_DESC_GAP;
 
   auto fiter = format.begin();
   for (const auto& o : group->second.options)
@@ -1965,7 +1964,7 @@ Options::generate_group_help
   const std::vector<std::string>& print_groups
 ) const
 {
-  for (std::size_t i = 0; i != print_groups.size(); ++i)
+  for (size_t i = 0; i != print_groups.size(); ++i)
   {
     const String& group_help_text = help_one_group(print_groups[i]);
     if (empty(group_help_text))
