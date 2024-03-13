@@ -32,7 +32,86 @@
 
 class IO {
 public:
-    static Dataset read_hdf5(const std::string& path, const std::string& dataset_name) {
+    static const hid_t get_hdf5_datatype(const std::string& path, const std::string& dataset_name)
+    {
+        // disable libhdf5 error printing
+        herr_t (*old_func)(hid_t, void*);
+        void* old_client_data;
+
+        H5Eget_auto(H5E_DEFAULT, &old_func, &old_client_data);
+        H5Eset_auto(H5E_DEFAULT, nullptr, nullptr);
+
+        // open the file
+        hid_t file_handle = H5Fopen(path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        if (file_handle < 0) {
+            throw std::invalid_argument("Could not open " + path + " for determining dataset type");
+        }
+
+        // retrieve the dataset
+        hid_t dataset_handle = H5Dopen1(file_handle, dataset_name.c_str());
+        if (dataset_handle < 0) {
+            throw std::invalid_argument("Could not open dataset " + dataset_name);
+        }
+
+        // retrieve the data
+        hid_t type_handle = H5Dget_type(dataset_handle);
+        if (type_handle < 0) {
+            throw std::runtime_error("Could not retrieve dataset type");
+        }
+
+        H5T_class_t type_class = H5Tget_class(type_handle);
+        std::size_t precision = H5Tget_precision(type_handle);
+
+
+        H5Fclose(file_handle);
+
+        // integer
+        if (type_class == H5T_INTEGER) {
+            H5T_sign_t sign = H5Tget_sign(type_handle);
+
+            // signed
+            if (sign == H5T_SGN_2) {
+                if (precision == 8) {
+                    return H5T_NATIVE_SCHAR;
+                } else if (precision == 16) {
+                    return H5T_NATIVE_SHORT;
+                } else if (precision == 32) {
+                    return H5T_NATIVE_INT;
+                } else if (precision == 64) {
+                    return H5T_NATIVE_LONG;
+                } else {
+                    throw std::invalid_argument("Unsupported signed integer precision");
+                }
+            // unsigned
+            } else {
+                if (precision == 8) {
+                    return H5T_NATIVE_UCHAR;
+                } else if (precision == 16) {
+                    return H5T_NATIVE_USHORT;
+                } else if (precision == 32) {
+                    return H5T_NATIVE_UINT;
+                } else if (precision == 64) {
+                    return H5T_NATIVE_ULONG;
+                } else {
+                    throw std::invalid_argument("Unsupported unsigned integer precision");
+                }
+            }
+        // floating point
+        } else if (type_class == H5T_FLOAT) {
+            if (precision == 32) {
+                return H5T_NATIVE_FLOAT;
+            } else if (precision == 64) {
+                return H5T_NATIVE_DOUBLE;
+            } else {
+                throw std::invalid_argument("Unsupported floating point precision");
+            }
+        // unsupported type
+        }
+
+        throw std::invalid_argument("Unsupported data set type");
+    }
+    template<typename data_type>
+    static Dataset<data_type> read_hdf5(const std::string& path, const std::string& dataset_name) {
         #ifdef WITH_MPI
         int rank, size;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -49,7 +128,7 @@ public:
         // open the file
         hid_t file_handle = H5Fopen(path.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
         if (file_handle < 0) {
-            throw std::invalid_argument("Could not open " + path);
+            throw std::invalid_argument("Could not open " + path + " for reading");
         }
 
         // retrieve the dataset
@@ -81,7 +160,7 @@ public:
         }
 
         // initialize the Dataset object
-        Dataset dataset(extents, type_handle);
+        Dataset<data_type> dataset(extents);
 
         // calculate the offsets for MPI mode
         #ifdef WITH_MPI
@@ -104,7 +183,8 @@ public:
         if (native_type < 0) {
             std::invalid_argument("Could not infer matching native data type from dataset data type");
         }
-        if (H5Dread(dataset_handle, native_type, hyperslab, space_handle, H5P_DEFAULT, dataset.m_p) < 0) {
+        if (H5Dread(dataset_handle, native_type, hyperslab, space_handle, H5P_DEFAULT,
+                    dataset.m_elements.data()) < 0) {
             throw std::runtime_error("Failed to read data");
         }
 
@@ -123,7 +203,11 @@ public:
         return dataset;
     }
 
-    static void write_hdf5(const std::string& path, const std::string& dataset_name, Clusters& clusters) {
+    template<typename index_type>
+    static void write_hdf5(
+            const std::string& path,
+            const std::string& dataset_name, 
+            Clusters<index_type>& clusters) {
         #ifdef WITH_MPI
         int rank, size;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -142,7 +226,7 @@ public:
         hsize_t offset = 0;
 
         #ifdef WITH_MPI
-        MPI_Allreduce(MPI_IN_PLACE, &total_count, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &total_count, 1, MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
         chunk_size = total_count / size;
         hsize_t remainder = total_count % size;
         if (remainder > static_cast<hsize_t>(rank)) {
@@ -158,12 +242,13 @@ public:
         // attempt to open the file
         hid_t file_handle = H5Fopen(path.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
         if (file_handle < 0) {
-            throw std::invalid_argument("Could not open " + path);
+            throw std::invalid_argument("Could not open " + path + " for writing");
         }
 
         // create the dataset
         hid_t data_space = H5Screate_simple(1, &total_count, nullptr);
-        H5Dcreate1(file_handle, dataset_name.c_str(), H5T_NATIVE_LONG, data_space, H5P_DEFAULT);
+        H5Dcreate1(file_handle, dataset_name.c_str(), 
+                get_hdf5_type<index_type>(), data_space, H5P_DEFAULT);
 
         // ... dataset already exists, previous call fails, just open the existing one
         hid_t dataset_handle = H5Dopen1(file_handle, dataset_name.c_str());
@@ -181,7 +266,7 @@ public:
         H5Sselect_hyperslab(space_handle, H5S_SELECT_SET, &offset, nullptr, &chunk_size, nullptr);
 
         // write the data to disk
-        if (H5Dwrite(dataset_handle, H5T_NATIVE_LONG, hyperslab, space_handle, H5P_DEFAULT, clusters.data()) < 0) {
+        if (H5Dwrite(dataset_handle, get_hdf5_type<index_type>(), hyperslab, space_handle, H5P_DEFAULT, clusters.data()) < 0) {
             throw std::runtime_error("Failed to write data, target data set is probably of wrong size or type");
         }
 

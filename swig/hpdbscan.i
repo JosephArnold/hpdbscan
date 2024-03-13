@@ -26,10 +26,22 @@ namespace std {
 
 %apply(double* IN_ARRAY2, int DIM1, int DIM2){(double* data, int dim0, int dim1)};
 
-class HPDBSCAN {
-public:
-    HPDBSCAN(float epsilon, size_t min_points) throw(std::invalid_argument);
-    std::vector<ptrdiff_t> cluster(const std::string& path, const std::string& dataset) throw(std::invalid_argument, std::runtime_error);
-    std::vector<ptrdiff_t> cluster(const std::string& path, const std::string& dataset, int threads) throw(std::invalid_argument, std::runtime_error);
-    std::vector<ptrdiff_t> cluster(double* data, int dim0, int dim1) throw(std::invalid_argument, std::runtime_error);
-};
+ class HPDBSCAN {
+ public:
+     HPDBSCAN(float epsilon, std::size_t min_points);
+     template<typename index_type>
+     std::vector<index_type> cluster(const std::string& path,
+                                     const std::string& dataset);
+     template<typename index_type>
+     std::vector<index_type> cluster(const std::string& path,
+                                     const std::string& dataset,
+                                     int threads);
+     template<typename data_type, typename index_type>
+     std::vector<index_type> cluster(data_type* data, int dim0, int dim1);
+ };
+
+%extend HPDBSCAN {
+    %template(cluster64) cluster<ptrdiff_t>;
+    %template(cluster64FP64) cluster<double, ptrdiff_t>;
+    %template(cluster64FP32) cluster<float, ptrdiff_t>;
+}

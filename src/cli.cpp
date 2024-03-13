@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
 #include <omp.h>
 #include <stdexcept>
@@ -26,6 +27,11 @@
 #include "hpdbscan.h"
 
 int main(int argc, char** argv) {
+    #if defined(USE_INT64_INDEX)
+    using index_type = std::int64_t;
+    #else
+    using index_type = std::int32_t;
+    #endif
     #ifdef WITH_MPI
     int error, provided;
     error = MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
@@ -37,12 +43,12 @@ int main(int argc, char** argv) {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     #endif
-    Clusters clusters;
+    Clusters<index_type> clusters;
 
     cxxopts::Options parser("HPDBSCAN", "Highly parallel DBSCAN clustering algorithm");
     parser.add_options()
         ("h, help", "this help message")
-        ("m, minPoints", "density threshold", cxxopts::value<size_t>()->default_value("2"))
+        ("m, minPoints", "density threshold", cxxopts::value<std::size_t>()->default_value("2"))
         ("e, epsilon", "spatial search radius", cxxopts::value<float>()->default_value("0.1"))
         ("t, threads", "utilized threads", cxxopts::value<int>()->default_value(std::to_string(omp_get_max_threads())))
         ("i, input", "input file", cxxopts::value<std::string>()->default_value("data.h5"))
@@ -82,7 +88,9 @@ int main(int argc, char** argv) {
 
     // run the clustering algorithm
     try {
-        HPDBSCAN hpdbscan(arguments["epsilon"].as<float>(), arguments["minPoints"].as<size_t>());
+        HPDBSCAN<index_type> hpdbscan(
+                arguments["epsilon"].as<float>(), 
+                arguments["minPoints"].as<std::size_t>());
         clusters = hpdbscan.cluster(
             arguments["input"].as<std::string>(),
             arguments["input-dataset"].as<std::string>(),

@@ -6,7 +6,7 @@ Highly parallel DBSCAN (HPDBSCAN) is a shared- and distributed-memory parallel i
 
 HPDBSCAN requires the following dependencies. Please make sure, that these are installed, before attempting to compile the code.
 
-* CMake 3.10+
+* CMake 3.13+
 * C++11 compliant compiler (e.g. g++ 4.9+)
 * OpenMP 4.0+ (e.g. g++ 4.9+)
 * HDF5 1.8+
