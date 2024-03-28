@@ -32,6 +32,7 @@
 
 #include "constants.h"
 #include "dataset.h"
+#include <iostream>
 
 #ifdef WITH_MPI
 #include <mpi.h>
@@ -49,6 +50,7 @@ class SpatialIndex {
     std::vector<size_t>        m_cell_dimensions;
     size_t                     m_total_cells;
     Cell                       m_last_cell;
+public:
     Cells                      m_cells;
     CellHistogram              m_cell_histogram;
     CellIndex                  m_cell_index;
@@ -57,6 +59,7 @@ class SpatialIndex {
     size_t                     m_halo;
     uint32_t                   m_global_point_offset;
     std::vector<size_t>        m_initial_order;
+    std::map<Cell, Cells>       cell_contents;	 
 
     #ifdef WITH_MPI
     int                        m_rank;
@@ -187,7 +190,6 @@ private:
         const hsize_t dimensions = m_data.m_chunk[1];
 
         // initialize out-of-place buffers
-        Cells reordered_cells(items);
         std::vector<size_t> reordered_indices(items);
         std::vector<data_type> reordered_points(items * dimensions);
 
@@ -198,14 +200,14 @@ private:
         }
 
         // sorting the points and cells out-of-place, memorize the original order
-        #pragma omp parallel for
+        //#pragma omp parallel for
         for (size_t i = 0; i < items; ++i) 
         {
             const Cell cell = m_cells[i];
             const auto& locator = m_cell_index[cell];
             const size_t copy_to = locator.first + (offsets[cell]++);
 
-            reordered_cells[copy_to] = m_cells[i];
+	    cell_contents[m_cells[i]].push_back(copy_to);
             reordered_indices[copy_to] = m_initial_order[i];
             for (size_t d = 0; d < dimensions; ++d)
             {
@@ -214,7 +216,6 @@ private:
         }
 
         // move the out-of-place results into the correct in-place buffers
-        m_cells.swap(reordered_cells);
         m_initial_order.swap(reordered_indices);
         std::copy(reordered_points.begin(), reordered_points.end(), m_data.m_elements.begin());
     }
@@ -451,6 +452,7 @@ private:
 
         // clean up the previous data
         m_cells.clear();
+	cell_contents.clear();
         m_cell_index.clear();
 
         // assign the new data
