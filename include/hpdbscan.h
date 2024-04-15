@@ -55,46 +55,100 @@ class HPDBSCAN {
 
     template <typename data_type>
     Rules<index_type> local_dbscan(Clusters<index_type>& clusters, 
-            const SpatialIndex<data_type, index_type>& index) {
+                                   const SpatialIndex<data_type, index_type>& index) {
+        
         const float EPS2 = m_epsilon * m_epsilon;
         const size_t lower = index.lower_halo_bound();
         const size_t upper = index.upper_halo_bound();
-
-
         Rules<index_type> rules;
         Cell previous_cell = NOT_VISITED<index_type>;
-        std::vector<index_type> neighboring_points;
+        std::vector<index_type> points_with_common_nb;
 
-#if 0
-        int retval;
+        /*Anyways points are being iterated cell wise You could simply accumulate all points
+        with the same neighbours in a vector.
+        initialise distance matrix 
+        Then compute the distance matrix
+        Update the cluster label for all the points */
+        //points_with_common_nb.push_back(lower);
+        //previous_cell = index.cell_of(lower);
 
-	int numEvents = 4;
-
-        long long values[4];
-
-        int events[4] = {PAPI_L1_DCH, PAPI_L1_DCA, PAPI_L2_DCH, PAPI_L2_DCA};
-
-        if (PAPI_start_counters(events, numEvents) != PAPI_OK )  // !=PAPI_OK
-	    printf("PAPI error: %d\n", 1);
-#endif
         // local DBSCAN run
-        #pragma omp parallel for schedule(dynamic, 2048) private(neighboring_points) firstprivate(previous_cell) reduction(merge: rules)
+        #pragma omp parallel for schedule(dynamic, 2048) private(points_with_common_nb) firstprivate(previous_cell) reduction(merge: rules)
         for (index_type point = lower; point < static_cast<index_type>(upper); ++point) {
             // small optimization, we only perform a neighborhood query if it is a new cell
             Cell current_cell = index.cell_of(point);
-
+            if(previous_cell == NOT_VISITED<index_type>) {
+                points_with_common_nb.push_back(point);
+                previous_cell = current_cell;
+                continue;
+            }
             if (current_cell != previous_cell) {
-                neighboring_points = index.template get_neighbors(current_cell);
+                std::vector<index_type> neighboring_points;
+                /*first compute the neighbours for the points with common neighbours*/
+                neighboring_points = index.template get_neighbors(previous_cell); //get the neighbours of points_with_common_nb
+    
+                if (neighboring_points.size() >= m_min_points) {
+                    
+                    for(auto& pt:points_with_common_nb) {
+
+                        std::vector<index_type> min_points_area;
+	                    index_type count = 0;
+                        Cluster<index_type> cluster_label = index.region_query(pt, neighboring_points, EPS2, clusters, min_points_area, count);
+                        
+                        if (static_cast<size_t>(count) >= m_min_points) {
+                        // set the label to be negative as to mark it as core point
+                        // NOTE: unary operator promotes shorter types to int, so explicitly cast
+                            atomic_min(clusters.data() + pt, static_cast<Cluster<index_type>>(-cluster_label));
+
+                            for (auto& other : min_points_area) {
+
+                                if(other != NOT_VISITED<index_type>) {
+                                // get the absolute value here, we are only interested what cluster it is not in the core property
+                                // check whether the other point is a cluster
+                                    if (clusters[other] < 0) {
+                                        rules.update(std::abs(clusters[other]), cluster_label);
+                                    }
+                                    else {
+                                    atomic_min(clusters.data() + other, cluster_label);
+                                    }
+                                }
+                            }
+                        }
+                        else if (clusters[pt] == NOT_VISITED<index_type>) {
+                        // mark as noise
+                            atomic_min(clusters.data() + pt, NOISE<index_type>);
+                        }
+                    }
+                }
+                else {
+        
+                    for(auto& pt:points_with_common_nb) {
+
+                        if (clusters[pt] == NOT_VISITED<index_type>) {
+                        // mark as noise
+                            atomic_min(clusters.data() + pt, NOISE<index_type>);
+                        }
+
+                    }
+
+                }
+                points_with_common_nb.clear();
+                points_with_common_nb.push_back(point);
                 previous_cell = current_cell;
             }
+            else {
+                points_with_common_nb.push_back(point);
+                continue;
 
+            }
+            /*
             std::vector<index_type> min_points_area;
 	        index_type count = 0;
             Cluster<index_type> cluster_label = NOISE<index_type>;
             if (neighboring_points.size() >= m_min_points) {
                 cluster_label = index.region_query(point, neighboring_points, EPS2, clusters, min_points_area, count);
             }
-
+            
             if (static_cast<size_t>(count) >= m_min_points) {
                 // set the label to be negative as to mark it as core point
                 // NOTE: unary operator promotes shorter types to int, so explicitly cast
@@ -118,25 +172,8 @@ class HPDBSCAN {
                 // mark as noise
                 atomic_min(clusters.data() + point, NOISE<index_type>);
             }
+            */
         }
-
-#if 0
-        if ((retval = PAPI_read_counters(values, numEvents)) != PAPI_OK) {
-            fprintf(stderr, "PAPI failed to read counters: %s\n", PAPI_strerror(retval));
-            exit(1);
-        }
-
-	std::cout<<"Level 1 data cache hits "<<values[0]<<std::endl;
-	std::cout<<"Level 1 data cache accesses "<<values[1]<<std::endl; 
-	double cache_miss_rate = static_cast<double>(values[0]) / static_cast<double>(values[1]);
-	std::cout<<"L1 cache hit rate "<<cache_miss_rate<<std::endl;
-
-	std::cout<<"L2 data cache hits "<<values[2]<<std::endl;
-        std::cout<<"L2 data cache accesses "<<values[3]<<std::endl;
-        cache_miss_rate = static_cast<double>(values[2]) / static_cast<double>(values[3]);
-        std::cout<<"L2 cache hit rate "<<cache_miss_rate<<std::endl;
-#endif
-
         return rules;
     }
 

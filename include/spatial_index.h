@@ -198,7 +198,7 @@ private:
         }
 
         // sorting the points and cells out-of-place, memorize the original order
-        #pragma omp parallel for
+        //#pragma omp parallel for
         for (size_t i = 0; i < items; ++i) 
         {
             const Cell cell = m_cells[i];
