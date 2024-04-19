@@ -860,18 +860,17 @@ public:
             const index_type point_index, 
             const std::vector<index_type>& neighboring_points,
             const data_type EPS2,
-            const Clusters<index_type>& clusters,
+            Clusters<index_type>& clusters,
             std::vector<index_type>& min_points_area,
-            index_type& count) const {
+            index_type& count,index_type m_min_points) const {
         
 	const size_t dimensions = m_data.m_chunk[1];
-    
-    
 	Cluster<index_type> cluster_label = m_global_point_offset + point_index + 1;
 
 	size_t n = neighboring_points.size();
 
 	min_points_area = std::vector<index_type>(n, NOT_VISITED<index_type>);
+    std::vector<index_type> border_points_area(n, NOT_VISITED<index_type>);
 
         // iterate through all neighboring points and check whether they are in range
         for (size_t i = 0; i < neighboring_points.size(); i++) {
@@ -888,16 +887,26 @@ public:
             // .. if in range, add it to the vector with in range points
             if (offset <= EPS2) {
                 const Cluster<index_type> neighbor_label = clusters[neighboring_points[i]];
-
-                min_points_area[i] = neighboring_points[i];
-
-		count++;
+		        count++;
                 // if neighbor point has an assigned label and it is a core, determine what label to take
                 if (neighbor_label < 0) {
                     cluster_label = std::min(cluster_label, 
                             static_cast<Cluster<index_type>>(std::abs(neighbor_label)));
+                    min_points_area[i] = neighboring_points[i]; //store only core points
+                }
+                else {
+                    border_points_area[i] = neighboring_points[i];
                 }
             }
+        }
+
+        if(count >= m_min_points) {
+        
+            for(auto& pt: border_points_area) {
+                if(pt != NOT_VISITED<index_type>)
+                    clusters[pt] = cluster_label;
+            }
+            clusters[point_index] =  static_cast<Cluster<index_type>>(-cluster_label);
         }
         
         return cluster_label;

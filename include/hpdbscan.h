@@ -69,10 +69,7 @@ class HPDBSCAN {
         initialise distance matrix 
         Then compute the distance matrix
         Update the cluster label for all the points */
-        //points_with_common_nb.push_back(lower);
-        //previous_cell = index.cell_of(lower);
-
-        // local DBSCAN run
+    // local DBSCAN run
         #pragma omp parallel for schedule(dynamic, 2048) private(points_with_common_nb) firstprivate(previous_cell) reduction(merge: rules)
         for (index_type point = lower; point < static_cast<index_type>(upper); ++point) {
             // small optimization, we only perform a neighborhood query if it is a new cell
@@ -86,31 +83,26 @@ class HPDBSCAN {
                 std::vector<index_type> neighboring_points;
                 /*first compute the neighbours for the points with common neighbours*/
                 neighboring_points = index.template get_neighbors(previous_cell); //get the neighbours of points_with_common_nb
-    
+                /*compute distance matrix*/
                 if (neighboring_points.size() >= m_min_points) {
                     
                     for(auto& pt:points_with_common_nb) {
 
                         std::vector<index_type> min_points_area;
 	                    index_type count = 0;
-                        Cluster<index_type> cluster_label = index.region_query(pt, neighboring_points, EPS2, clusters, min_points_area, count);
+                        Cluster<index_type> cluster_label = index.region_query(pt, neighboring_points, EPS2, clusters, min_points_area, count, m_min_points);
                         
                         if (static_cast<size_t>(count) >= m_min_points) {
                         // set the label to be negative as to mark it as core point
                         // NOTE: unary operator promotes shorter types to int, so explicitly cast
-                            atomic_min(clusters.data() + pt, static_cast<Cluster<index_type>>(-cluster_label));
-
+                            //atomic_min(clusters.data() + pt, static_cast<Cluster<index_type>>(-cluster_label));
+                            
                             for (auto& other : min_points_area) {
 
                                 if(other != NOT_VISITED<index_type>) {
-                                // get the absolute value here, we are only interested what cluster it is not in the core property
-                                // check whether the other point is a cluster
-                                    if (clusters[other] < 0) {
-                                        rules.update(std::abs(clusters[other]), cluster_label);
-                                    }
-                                    else {
-                                    atomic_min(clusters.data() + other, cluster_label);
-                                    }
+                               
+                                    rules.update(std::abs(clusters[other]), cluster_label);
+                                   
                                 }
                             }
                         }
