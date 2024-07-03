@@ -275,6 +275,9 @@ private:
 
     size_t compute_score(const Cell cell_id, const CellHistogram& cell_histogram) {
         const hsize_t dimensions = m_data.m_chunk[1];
+        //if(dimensions > 16)
+        //    return cell_histogram.find(cell_id)->second * (std::pow(3, dimensions);
+
 
         // allocate buffer for the dimensions steps
         Cells neighboring_cells;
@@ -285,13 +288,13 @@ private:
         size_t cells_in_lower_space = 1;
         size_t cells_in_current_space = 1;
         size_t points_in_cell = cell_histogram.find(cell_id)->second;
-        size_t number_of_points = points_in_cell;
+	size_t number_of_points = points_in_cell;
 
         // iterate through all neighboring cells and up the number of points stored there
         for (size_t d : m_swapped_dimensions) {
             cells_in_current_space *= m_cell_dimensions[d];
-
-            for (size_t i = 0, end = neighboring_cells.size(); i < end; ++i) {
+	    
+            for(size_t i = 0, end = neighboring_cells.size(); i < end; ++i) {
                 const Cell current = neighboring_cells[i];
 
                 // cell to the left
@@ -325,13 +328,31 @@ private:
         size_t total_score = 0;
         size_t score_index = 0;
 
+	std::vector<size_t> keys;
+
+        for(auto& p:cell_histogram) {
+
+            keys.push_back(p.first);
+
+        }
+
+        #pragma omp parallel for schedule(dynamic) reduction(+ : total_score)
+        for (uint64_t i = 0; i < keys.size(); i++) {
+
+            const size_t score = compute_score(keys[i], cell_histogram);
+            scores[i] = score;
+            total_score += score;
+
+        }
+
+#if 0
         for (auto const& [key,value] : cell_histogram) {
             const Cell cell = key;
             const size_t score = compute_score(cell, cell_histogram);
             scores[score_index++] = score;
             total_score += score;
         }
-
+#endif
         // ...to determine the actual bounds
         const size_t score_per_chunk = total_score / m_size + 1;
         size_t accumulator = 0;
@@ -860,17 +881,18 @@ public:
             const index_type point_index, 
             const std::vector<index_type>& neighboring_points,
             const data_type EPS2,
-            Clusters<index_type>& clusters,
+            const Clusters<index_type>& clusters,
             std::vector<index_type>& min_points_area,
-            index_type& count,index_type m_min_points) const {
+            index_type& count) const {
         
 	const size_t dimensions = m_data.m_chunk[1];
+    
+    
 	Cluster<index_type> cluster_label = m_global_point_offset + point_index + 1;
 
 	size_t n = neighboring_points.size();
 
 	min_points_area = std::vector<index_type>(n, NOT_VISITED<index_type>);
-    std::vector<index_type> border_points_area(n, NOT_VISITED<index_type>);
 
         // iterate through all neighboring points and check whether they are in range
         for (size_t i = 0; i < neighboring_points.size(); i++) {
@@ -887,26 +909,16 @@ public:
             // .. if in range, add it to the vector with in range points
             if (offset <= EPS2) {
                 const Cluster<index_type> neighbor_label = clusters[neighboring_points[i]];
-		        count++;
+
+                min_points_area[i] = neighboring_points[i];
+
+		count++;
                 // if neighbor point has an assigned label and it is a core, determine what label to take
                 if (neighbor_label < 0) {
                     cluster_label = std::min(cluster_label, 
                             static_cast<Cluster<index_type>>(std::abs(neighbor_label)));
-                    min_points_area[i] = neighboring_points[i]; //store only core points
-                }
-                else {
-                    border_points_area[i] = neighboring_points[i];
                 }
             }
-        }
-
-        if(count >= m_min_points) {
-        
-            for(auto& pt: border_points_area) {
-                if(pt != NOT_VISITED<index_type>)
-                    clusters[pt] = cluster_label;
-            }
-            clusters[point_index] =  static_cast<Cluster<index_type>>(-cluster_label);
         }
         
         return cluster_label;
