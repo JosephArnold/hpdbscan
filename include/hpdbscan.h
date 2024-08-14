@@ -40,12 +40,14 @@
 #include "hdf5_util.h"
 #include "io.h"
 #include "rules.h"
+#include "region_query_gpu.h"
 #include "spatial_index.h"
+#define USE_GPU 1
 
 template<typename index_type>
 class HPDBSCAN {
     float m_epsilon;
-    size_t m_min_points;
+    std::size_t m_min_points;
 
     #ifdef WITH_MPI
     int m_rank;
@@ -55,22 +57,32 @@ class HPDBSCAN {
 
     template <typename data_type>
     Rules<index_type> local_dbscan(Clusters<index_type>& clusters, 
-                                   const SpatialIndex<data_type, index_type>& index) {
-        
-        const float EPS2 = m_epsilon * m_epsilon;
+            const SpatialIndex<data_type, index_type>& index) {
+
+	     const float EPS2 = m_epsilon * m_epsilon;
         const size_t lower = index.lower_halo_bound();
         const size_t upper = index.upper_halo_bound();
         Rules<index_type> rules;
         Cell previous_cell = NOT_VISITED<index_type>;
         std::vector<index_type> points_with_common_nb;
+	data_type* dataset = index.m_data.m_elements.data();
+	const std::size_t dimensions = index.m_data.m_chunk[1];
+	const std::size_t size_of_dataset = index.m_data.m_chunk[0];
 
+        RegionQuery<data_type, index_type> checkquery(dataset, EPS2, dimensions,
+		                                      clusters.data(), m_min_points,
+						      index.m_global_point_offset,
+						      size_of_dataset);
+
+	std::cout<<"Total number of points "<<(upper-lower)<<std::endl;
         /*Anyways points are being iterated cell wise You could simply accumulate all points
         with the same neighbours in a vector.
-        initialise distance matrix 
+        initialise distance matrix
         Then compute the distance matrix
         Update the cluster label for all the points */
     // local DBSCAN run
-        #pragma omp parallel for schedule(dynamic, 2048) private(points_with_common_nb) firstprivate(previous_cell) reduction(merge: rules)
+        uint32_t gpu_count = 0;
+        #pragma omp parallel for schedule(dynamic, 2048) private(points_with_common_nb) firstprivate(previous_cell) reduction(merge: rules) reduction(+:gpu_count)
         for (index_type point = lower; point < static_cast<index_type>(upper); ++point) {
             // small optimization, we only perform a neighborhood query if it is a new cell
             Cell current_cell = index.cell_of(point);
@@ -84,46 +96,49 @@ class HPDBSCAN {
                 /*first compute the neighbours for the points with common neighbours*/
                 neighboring_points = index.template get_neighbors(previous_cell); //get the neighbours of points_with_common_nb
                 /*compute distance matrix*/
-                if (neighboring_points.size() >= m_min_points) {
+		size_t n = neighboring_points.size();
+
+                if (n >= m_min_points) {
+
+		    size_t num_of_Points_with_common_nb = points_with_common_nb.size();
+                    std::vector<index_type> count(num_of_Points_with_common_nb, 0);
+		    std::vector<Cluster<index_type>> cluster_label(num_of_Points_with_common_nb);
+		    std::vector<index_type> min_points_area(num_of_Points_with_common_nb * neighboring_points.size(),
+				                            NOT_VISITED<index_type>);
                     
-                    for(auto& pt:points_with_common_nb) {
+		    checkquery.compute_neighbours_gpu(points_with_common_nb,
+                                           neighboring_points,
+                                           min_points_area,
+                                           count,
+                                           cluster_label,
+                                           num_of_Points_with_common_nb);
+                   
+		    /*Update only rules */ 
+                    for(uint32_t i = 0; i < num_of_Points_with_common_nb; i++) {
+			
+			auto pt = points_with_common_nb[i];
+			/*You need to have array of cluster labels, array of min_points, array of counts */ 
+                        if (static_cast<size_t>(count[i]) >= m_min_points) {
 
-                        std::vector<index_type> min_points_area;
-	                    index_type count = 0;
-                        Cluster<index_type> cluster_label = index.region_query(pt, neighboring_points, EPS2, clusters, min_points_area, count, m_min_points);
-                        
-                        if (static_cast<size_t>(count) >= m_min_points) {
-                        // set the label to be negative as to mark it as core point
-                        // NOTE: unary operator promotes shorter types to int, so explicitly cast
-                            //atomic_min(clusters.data() + pt, static_cast<Cluster<index_type>>(-cluster_label));
-                            
-                            for (auto& other : min_points_area) {
+			    //only points that are its neighbours and which are core points 
+			    auto limit = i * n + n; 
+			    for (auto k = i * n; k < limit; k++) {
 
-                                if(other != NOT_VISITED<index_type>) {
-                               
-                                    rules.update(std::abs(clusters[other]), cluster_label);
-                                   
+                                if(min_points_area[k] != NOT_VISITED<index_type>) {
+
+			            if (clusters[min_points_area[k]] < 0) {
+                                    
+				        rules.update(std::abs(clusters[min_points_area[k]]), 
+							               cluster_label[i]);
+                                
+				    }
+
                                 }
                             }
                         }
-                        else if (clusters[pt] == NOT_VISITED<index_type>) {
-                        // mark as noise
-                            atomic_min(clusters.data() + pt, NOISE<index_type>);
-                        }
                     }
                 }
-                else {
-        
-                    for(auto& pt:points_with_common_nb) {
-
-                        if (clusters[pt] == NOT_VISITED<index_type>) {
-                        // mark as noise
-                            atomic_min(clusters.data() + pt, NOISE<index_type>);
-                        }
-
-                    }
-
-                }
+               
                 points_with_common_nb.clear();
                 points_with_common_nb.push_back(point);
                 previous_cell = current_cell;
@@ -133,39 +148,9 @@ class HPDBSCAN {
                 continue;
 
             }
-            /*
-            std::vector<index_type> min_points_area;
-	        index_type count = 0;
-            Cluster<index_type> cluster_label = NOISE<index_type>;
-            if (neighboring_points.size() >= m_min_points) {
-                cluster_label = index.region_query(point, neighboring_points, EPS2, clusters, min_points_area, count);
-            }
-            
-            if (static_cast<size_t>(count) >= m_min_points) {
-                // set the label to be negative as to mark it as core point
-                // NOTE: unary operator promotes shorter types to int, so explicitly cast
-                atomic_min(clusters.data() + point, 
-                        static_cast<Cluster<index_type>>(-cluster_label));
-
-                for (auto& other : min_points_area) {
-
-                    if(other != NOT_VISITED<index_type>) {
-                        // get the absolute value here, we are only interested what cluster it is not in the core property
-                        // check whether the other point is a cluster
-                        if (clusters[other] < 0) {
-                            rules.update(std::abs(clusters[other]), cluster_label);
-                        }
-                        // mark as a border point
-                        atomic_min(clusters.data() + other, cluster_label);
-                    }
-                }
-            }
-            else if (clusters[point] == NOT_VISITED<index_type>) {
-                // mark as noise
-                atomic_min(clusters.data() + point, NOISE<index_type>);
-            }
-            */
         }
+	std::cout<<"Number of calls to GPU "<<gpu_count<<std::endl;
+
         return rules;
     }
 
@@ -178,7 +163,7 @@ class HPDBSCAN {
         // exchange the number of points in the halos
         std::vector<int> send_counts(m_size, 0);
         std::vector<int> recv_counts(m_size, 0);
-        for (size_t i = 0; i < cuts.size(); ++i) {
+        for (std::size_t i = 0; i < cuts.size(); ++i) {
             send_counts[i] = static_cast<int>(cuts[i].second - cuts[i].first);
         }
         MPI_Alltoall(send_counts.data(), 1, MPI_INT32_T,
@@ -187,16 +172,16 @@ class HPDBSCAN {
         // accumulate the numbers of points from each node
         std::vector<int> send_displs(m_size, 0);
         std::vector<int> recv_displs(m_size, 0);
-        size_t total_items_to_receive = 0;
+        std::size_t total_items_to_receive = 0;
         for (int i = 0; i < m_size; ++i) {
             send_displs[i] = cuts[i].first;
             recv_displs[i] = total_items_to_receive;
-            total_items_to_receive += static_cast<size_t>(recv_counts[i]);
+            total_items_to_receive += static_cast<std::size_t>(recv_counts[i]);
         }
 
         // create a buffer for the incoming cluster labels and exchange them
-        const size_t upper_halo_bound = index.upper_halo_bound();
-        const size_t lower_halo_bound = index.lower_halo_bound();
+        const std::size_t upper_halo_bound = index.upper_halo_bound();
+        const std::size_t lower_halo_bound = index.lower_halo_bound();
         Clusters<index_type> halo_labels(total_items_to_receive);
 
         MPI_Alltoallv(
@@ -205,11 +190,11 @@ class HPDBSCAN {
         );
 
         // update the local clusters with the received information
-        for (size_t i = 0; i < m_size; ++i) {
-            size_t offset = (i < m_rank ? lower_halo_bound : upper_halo_bound - recv_counts[i]);
+        for (std::size_t i = 0; i < m_size; ++i) {
+            std::size_t offset = (i < m_rank ? lower_halo_bound : upper_halo_bound - recv_counts[i]);
 
-            for (size_t j = 0; j < recv_counts[i]; ++j) {
-                const size_t index = j + offset;
+            for (std::size_t j = 0; j < recv_counts[i]; ++j) {
+                const std::size_t index = j + offset;
                 const Cluster<index_type> own_cluster = clusters[index];
                 const Cluster<index_type> halo_cluster = halo_labels[j + recv_displs[i]];
 
@@ -243,7 +228,7 @@ class HPDBSCAN {
                      recv_counts.data(), 1, MPI_INT32_T, MPI_COMM_WORLD);
 
         // ... based on that calculate the displacements into the receive buffer
-        size_t total = 0;
+        std::size_t total = 0;
         for (int i = 0; i < m_size; ++i) {
             recv_displs[i] = total;
             total += recv_counts[i];
@@ -251,7 +236,7 @@ class HPDBSCAN {
 
         // serialize the rules
         Clusters<index_type> serialized_rules(send_counts[m_rank]);
-        size_t index = 0;
+        std::size_t index = 0;
         for (const auto& rule : rules) {
             serialized_rules[index++] = rule.first;
             serialized_rules[index++] = rule.second;
@@ -263,7 +248,7 @@ class HPDBSCAN {
             serialized_rules.data(), send_counts.data(), send_displs.data(), get_mpi_type<index_type>(),
             incoming_rules.data(),   recv_counts.data(), recv_displs.data(), get_mpi_type<index_type>(), MPI_COMM_WORLD
         );
-        for (size_t i = 0; i < total; i += 2) {
+        for (std::size_t i = 0; i < total; i += 2) {
             rules.update(incoming_rules[i], incoming_rules[i + 1]);
         }
     }
@@ -271,7 +256,7 @@ class HPDBSCAN {
 
     void apply_rules(Clusters<index_type>& clusters, const Rules<index_type>& rules) {
         #pragma omp parallel for
-        for (size_t i = 0; i < clusters.size(); ++i) {
+        for (std::size_t i = 0; i < clusters.size(); ++i) {
             const bool is_core = clusters[i] < 0;
             Cluster<index_type> cluster = std::abs(clusters[i]);
             Cluster<index_type> matching_rule = rules.rule(cluster);
@@ -288,12 +273,12 @@ class HPDBSCAN {
     template<typename data_type>
     void summarize(const Dataset<data_type>& dataset, const Clusters<index_type>& clusters) const {
         std::unordered_set<Cluster<index_type>> unique_clusters;
-        size_t cluster_points = 0;
-        size_t core_points = 0;
-        size_t noise_points = 0;
+        std::size_t cluster_points = 0;
+        std::size_t core_points = 0;
+        std::size_t noise_points = 0;
 
         // iterate through the points and sum up the
-        for (size_t i = 0; i < dataset.m_chunk[0]; ++i) {
+        for (std::size_t i = 0; i < dataset.m_chunk[0]; ++i) {
             const Cluster<index_type> cluster = clusters[i];
             unique_clusters.insert(std::abs(cluster));
 
@@ -306,7 +291,7 @@ class HPDBSCAN {
                 ++core_points;
             }
         }
-        size_t metrics[] = {cluster_points, noise_points, core_points};
+        std::size_t metrics[] = {cluster_points, noise_points, core_points};
 
         #ifdef WITH_MPI
         int number_of_unique_clusters = static_cast<int>(unique_clusters.size());
@@ -327,7 +312,7 @@ class HPDBSCAN {
         std::copy(unique_clusters.begin(), unique_clusters.end(), local_buffer.begin());
 
         // sum up the total number of elements on the MPI root to determine the global buffer size
-        size_t buffer_size = 0;
+        std::size_t buffer_size = 0;
         if (m_rank == 0) {
             for (int i = 0; i < m_size; ++i) {
                 set_displs[i] = buffer_size;
@@ -343,7 +328,7 @@ class HPDBSCAN {
         );
         // accumulate the metrics of each node
         MPI_Reduce(
-            m_rank == 0 ? MPI_IN_PLACE : metrics, metrics, sizeof(metrics) / sizeof(size_t),
+            m_rank == 0 ? MPI_IN_PLACE : metrics, metrics, sizeof(metrics) / sizeof(std::size_t),
             MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD
         );
 
@@ -361,7 +346,7 @@ class HPDBSCAN {
     #endif
 
 public:
-    HPDBSCAN(float epsilon, size_t min_points) : m_epsilon(epsilon), m_min_points(min_points) {
+    HPDBSCAN(float epsilon, std::size_t min_points) : m_epsilon(epsilon), m_min_points(min_points) {
         #ifdef WITH_MPI
         MPI_Comm_rank(MPI_COMM_WORLD, &m_rank);
         MPI_Comm_size(MPI_COMM_WORLD, &m_size);
@@ -432,7 +417,7 @@ public:
         // initialize the feature indexer
         SpatialIndex<data_type, index_type> index(dataset, m_epsilon);
         // initialize the clusters array
-        Clusters<index_type> clusters(dataset.m_chunk[0], NOT_VISITED<index_type>);
+        Clusters<index_type> clusters(dataset.m_chunk[0], NOISE<index_type>);
 
         // run the first local clustering round
         #ifdef WITH_OUTPUT
@@ -467,7 +452,7 @@ public:
             }
             #endif
             merge_halos(clusters, rules, index);
-            MPI_Barrier(MPI_COMM_WORLD);
+            // MPI_Barrier(MPI_COMM_WORLD);
             distribute_rules(rules);
             #ifdef WITH_OUTPUT
             if (m_rank == 0) {
@@ -536,7 +521,7 @@ public:
 
     template <typename data_type>
     Clusters<index_type> cluster(data_type* data, int dim0, int dim1, int threads) {
-        hsize_t chunk[2] = {static_cast<hsize_t>(dim0), static_cast<hsize_t>(dim1)};
+        std::size_t chunk[2] = {static_cast<std::size_t>(dim0), static_cast<std::size_t>(dim1)};
         Dataset<data_type> dataset(data, chunk, get_hdf5_type<data_type>());
 
         return cluster<data_type, index_type>(dataset, threads);

@@ -16,47 +16,51 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <cmath>
 #include <functional>
-#include <hdf5.h>
 #include <limits>
 #include <numeric>
-#include <omp.h>
 #include <parallel/algorithm>
-#include <vector>
 #include <set>
+#include <vector>
 
 #ifdef WITH_OUTPUT
 #include <iostream>
 #endif
 
-#include "constants.h"
-#include "dataset.h"
+#include <hdf5.h>
+#include <omp.h>
 
 #ifdef WITH_MPI
 #include <mpi.h>
 #include "mpi_util.h"
 #endif
 
+#include "constants.h"
+#include "dataset.h"
+
 template <typename data_type, typename index_type>
 class SpatialIndex {
+    
+public:
     Dataset<data_type>&                   m_data;
     const float                m_epsilon;
 
     std::vector<data_type>             m_minimums;
     std::vector<data_type>             m_maximums;
 
-    std::vector<size_t>        m_cell_dimensions;
-    size_t                     m_total_cells;
+    std::vector<std::size_t>        m_cell_dimensions;
+    std::size_t                     m_total_cells;
     Cell                       m_last_cell;
     Cells                      m_cells;
     CellHistogram              m_cell_histogram;
     CellIndex                  m_cell_index;
 
-    std::vector<size_t>        m_swapped_dimensions;
-    size_t                     m_halo;
-    uint32_t                   m_global_point_offset;
-    std::vector<size_t>        m_initial_order;
+    std::vector<std::size_t>        m_swapped_dimensions;
+    std::size_t                     m_halo;
+    std::uint32_t                   m_global_point_offset;
+    std::vector<std::size_t>        m_initial_order;
 
     #ifdef WITH_MPI
     int                        m_rank;
@@ -69,14 +73,14 @@ class SpatialIndex {
 public:
     // implementations of the custom omp reduction operations
     static void vector_min(std::vector<data_type>& omp_in, std::vector<data_type>& omp_out) {
-        for (size_t index = 0; index < omp_out.size(); ++index) {
+        for (std::size_t index = 0; index < omp_out.size(); ++index) {
             omp_out[index] = std::min(omp_in[index], omp_out[index]);
         }
     }
     #pragma omp declare reduction(vector_min: std::vector<data_type>: vector_min(omp_in, omp_out)) initializer(omp_priv = omp_orig)
 
     static void vector_max(std::vector<data_type>& omp_in, std::vector<data_type>& omp_out) {
-        for (size_t index = 0; index < omp_out.size(); ++index) {
+        for (std::size_t index = 0; index < omp_out.size(); ++index) {
             omp_out[index] = std::max(omp_in[index], omp_out[index]);
         }
     }
@@ -92,14 +96,14 @@ public:
 private:
     void compute_initial_order() {
         #pragma omp parallel for
-        for (size_t i = 0; i < m_data.m_chunk[0]; ++i) {
+        for (std::size_t i = 0; i < m_data.m_chunk[0]; ++i) {
             m_initial_order[i] += i + m_data.m_offset[0];
         }
     }
 
     void compute_space_dimensions() {
-        const size_t dimensions = m_minimums.size();
-        const size_t points = m_cells.size();
+        const std::size_t dimensions = m_minimums.size();
+        const std::size_t points = m_cells.size();
 
         // compute the local feature space minimums and maximums in parallel
         auto& minimums = m_minimums;
@@ -107,7 +111,7 @@ private:
 
         #pragma omp parallel for reduction(vector_min: minimums) reduction(vector_max: maximums)
         for (std::size_t point_idx = 0; point_idx < points; point_idx++) {
-            for (size_t d = 0; d < dimensions; ++d) {
+            for (std::size_t d = 0; d < dimensions; ++d) {
                 std::size_t coord_idx = point_idx*dimensions+d;
                 data_type coordinate = m_data.m_elements[coord_idx];
                 minimums[d] = std::min(minimums[d], coordinate);
@@ -123,8 +127,8 @@ private:
     }
 
     void compute_cell_dimensions() {
-        for (size_t i = 0; i < m_cell_dimensions.size(); ++i) {
-            size_t cells = static_cast<size_t>(std::ceil((m_maximums[i] - m_minimums[i]) / m_epsilon)) + 1;
+        for (std::size_t i = 0; i < m_cell_dimensions.size(); ++i) {
+            std::size_t cells = static_cast<std::size_t>(std::ceil((m_maximums[i] - m_minimums[i]) / m_epsilon)) + 1;
             m_cell_dimensions[i] = cells;
             m_total_cells *= cells;
         }
@@ -135,7 +139,7 @@ private:
         // fill the dimensions with an initially correct order
         std::iota(m_swapped_dimensions.begin(), m_swapped_dimensions.end(), 0);
         // swap the dimensions descending by their cell sizes
-        std::sort(m_swapped_dimensions.begin(), m_swapped_dimensions.end(), [&] (size_t a, size_t b) {
+        std::sort(m_swapped_dimensions.begin(), m_swapped_dimensions.end(), [&] (std::size_t a, std::size_t b) {
             return m_cell_dimensions[a] < m_cell_dimensions[b];
         });
         // determine the halo size
@@ -144,17 +148,17 @@ private:
 
     void compute_cells() {
         CellHistogram histogram;
-        const size_t dimensions = m_data.m_chunk[1];
+        const std::size_t dimensions = m_data.m_chunk[1];
 
         #pragma omp parallel for reduction(merge_histograms: histogram)
-        for (size_t i = 0; i < m_data.m_chunk[0]; ++i) {
+        for (std::size_t i = 0; i < m_data.m_chunk[0]; ++i) {
 
-            size_t cell = 0;
-            size_t accumulator = 1;
+            std::size_t cell = 0;
+            std::size_t accumulator = 1;
 
-            for (size_t d : m_swapped_dimensions) {
+            for (std::size_t d : m_swapped_dimensions) {
                 auto coord = m_data.m_elements[i*dimensions+d];
-                size_t index = static_cast<size_t>(std::floor((coord - m_minimums[d]) / m_epsilon));
+                std::size_t index = static_cast<std::size_t>(std::floor((coord - m_minimums[d]) / m_epsilon));
                 cell += index * accumulator;
                 accumulator *= m_cell_dimensions[d];
             }
@@ -166,7 +170,7 @@ private:
     }
 
     void compute_cell_index() {
-        size_t accumulator = 0;
+        std::size_t accumulator = 0;
 
         // sum up the offset into the points array
         for (auto& cell : m_cell_histogram)
@@ -183,35 +187,55 @@ private:
     }
 
     void sort_by_cell() {
-        const hsize_t items = m_data.m_chunk[0];
-        const hsize_t dimensions = m_data.m_chunk[1];
+        const std::size_t items = m_data.m_chunk[0];
+        const std::size_t dimensions = m_data.m_chunk[1];
 
         // initialize out-of-place buffers
         Cells reordered_cells(items);
-        std::vector<size_t> reordered_indices(items);
-        std::vector<data_type> reordered_points(items * dimensions);
+        std::vector<std::size_t> reordered_indices(items);
+        std::vector<data_type, dynamic_aligned_allocator<data_type>> 
+            reordered_points(items * dimensions, dynamic_aligned_allocator<data_type>(64));
 
         // memory for offset of already placed items
-        std::unordered_map<Cell, std::atomic<size_t>> offsets;
+        std::unordered_map<Cell, std::size_t> offsets;
         for (const auto&  cell_index : m_cell_index) {
-            offsets[cell_index.first].store(0);
+            offsets[cell_index.first] = 0;
         }
 
-        // sorting the points and cells out-of-place, memorize the original order
-        //#pragma omp parallel for
-        for (size_t i = 0; i < items; ++i) 
+
+        //std::size_t max_dest = 0;
+        std::vector<std::size_t> sources(items, 0);
+
+        // We must guarantee sequentiality wrt/ which index goes to which destination
+        // Therefore compute reorder associations sequentially
+        for(std::size_t i = 0; i< items; i++)
         {
             const Cell cell = m_cells[i];
             const auto& locator = m_cell_index[cell];
-            const size_t copy_to = locator.first + (offsets[cell]++);
 
-            reordered_cells[copy_to] = m_cells[i];
-            reordered_indices[copy_to] = m_initial_order[i];
-            for (size_t d = 0; d < dimensions; ++d)
+            std::size_t copy_to = locator.first+(offsets[cell]++);
+            //max_dest = std::max(copy_to+1, max_dest);
+            sources[copy_to] = i;
+        }
+
+        //assert(max_dest == items);
+
+
+        // sorting the points and cells out-of-place, memorize the original order
+        #pragma omp parallel for
+        for (std::size_t copy_to = 0; copy_to < items; ++copy_to) 
+        //for (std::size_t copy_to = 0; copy_to < max_dest; ++copy_to) 
+        {
+            auto source = sources[copy_to];
+
+            reordered_cells[copy_to] = m_cells[source];
+            reordered_indices[copy_to] = m_initial_order[source];
+            for (std::size_t d = 0; d < dimensions; ++d)
             {
-                reordered_points[copy_to * dimensions + d] = m_data.m_elements[i * dimensions + d];
+                reordered_points[copy_to * dimensions + d] = m_data.m_elements[source * dimensions + d];
             }
         }
+
 
         // move the out-of-place results into the correct in-place buffers
         m_cells.swap(reordered_cells);
@@ -236,18 +260,18 @@ private:
                      recv_counts.data(), 1, MPI_INT32_T, MPI_COMM_WORLD);
 
         // ... based on this information we can calculate the displacements into the buffer
-        size_t entries_count = 0;
+        std::size_t entries_count = 0;
         for (int i = 0; i < m_size; ++i) {
             recv_displs[i] = entries_count;
             entries_count += recv_counts[i];
         }
 
         // serialize the local histogram into a flat buffer
-        std::vector<size_t> send_buffer(m_cell_histogram.size() * 2);
-        //size_t send_buffer_index = 0;
-        //size_t cell_index = 0;
-        size_t cell_size = m_cell_histogram.size();
-        size_t i = 0;
+        std::vector<std::size_t> send_buffer(m_cell_histogram.size() * 2);
+        //std::size_t send_buffer_index = 0;
+        //std::size_t cell_index = 0;
+        std::size_t cell_size = m_cell_histogram.size();
+        std::size_t i = 0;
         for (auto const& [key,value] : m_cell_histogram) {
             send_buffer[i*2] = key;
             send_buffer[i*2+1] = value;
@@ -255,7 +279,7 @@ private:
         }
 
         // exchange the histograms
-        std::vector<size_t> recv_buffer(entries_count);
+        std::vector<std::size_t> recv_buffer(entries_count);
         MPI_Alltoallv(
             send_buffer.data(), send_counts.data(), send_displs.data(), MPI_UINT64_T,
             recv_buffer.data(), recv_counts.data(), recv_displs.data(), MPI_UINT64_T, MPI_COMM_WORLD
@@ -263,7 +287,7 @@ private:
 
         // sum-up the entries into a global histogram
         CellHistogram global_histogram;
-        for (size_t i = 0; i < entries_count; i += 2) {
+        for (std::size_t i = 0; i < entries_count; i += 2) {
             global_histogram[recv_buffer[i]] += recv_buffer[i + 1];
         }
 
@@ -273,11 +297,8 @@ private:
         return global_histogram;
     }
 
-    size_t compute_score(const Cell cell_id, const CellHistogram& cell_histogram) {
-        const hsize_t dimensions = m_data.m_chunk[1];
-        //if(dimensions > 16)
-        //    return cell_histogram.find(cell_id)->second * (std::pow(3, dimensions);
-
+    std::size_t compute_score(const Cell cell_id, const CellHistogram& cell_histogram) {
+        const std::size_t dimensions = m_data.m_chunk[1];
 
         // allocate buffer for the dimensions steps
         Cells neighboring_cells;
@@ -285,16 +306,16 @@ private:
         neighboring_cells.push_back(cell_id);
 
         // accumulators for sub-space traversal
-        size_t cells_in_lower_space = 1;
-        size_t cells_in_current_space = 1;
-        size_t points_in_cell = cell_histogram.find(cell_id)->second;
-	size_t number_of_points = points_in_cell;
+        std::size_t cells_in_lower_space = 1;
+        std::size_t cells_in_current_space = 1;
+        std::size_t points_in_cell = cell_histogram.find(cell_id)->second;
+        std::size_t number_of_points = points_in_cell;
 
         // iterate through all neighboring cells and up the number of points stored there
-        for (size_t d : m_swapped_dimensions) {
+        for (std::size_t d : m_swapped_dimensions) {
             cells_in_current_space *= m_cell_dimensions[d];
-	    
-            for(size_t i = 0, end = neighboring_cells.size(); i < end; ++i) {
+
+            for (std::size_t i = 0, end = neighboring_cells.size(); i < end; ++i) {
                 const Cell current = neighboring_cells[i];
 
                 // cell to the left
@@ -324,52 +345,34 @@ private:
         m_compute_bounds.resize(m_size);
 
         // compute the score value for each cell and accumulate the total score first...
-        std::vector<size_t> scores(cell_histogram.size(), 0);
-        size_t total_score = 0;
-        size_t score_index = 0;
+        std::vector<std::size_t> scores(cell_histogram.size(), 0);
+        std::size_t total_score = 0;
+        std::size_t score_index = 0;
 
-	std::vector<size_t> keys;
-
-        for(auto& p:cell_histogram) {
-
-            keys.push_back(p.first);
-
-        }
-
-        #pragma omp parallel for schedule(dynamic) reduction(+ : total_score)
-        for (uint64_t i = 0; i < keys.size(); i++) {
-
-            const size_t score = compute_score(keys[i], cell_histogram);
-            scores[i] = score;
-            total_score += score;
-
-        }
-
-#if 0
         for (auto const& [key,value] : cell_histogram) {
             const Cell cell = key;
-            const size_t score = compute_score(cell, cell_histogram);
+            const std::size_t score = compute_score(cell, cell_histogram);
             scores[score_index++] = score;
             total_score += score;
         }
-#endif
+
         // ...to determine the actual bounds
-        const size_t score_per_chunk = total_score / m_size + 1;
-        size_t accumulator = 0;
-        size_t target_rank = 0;
-        size_t lower_split_point = 0;
-        size_t bound_lower_start = 0;
+        const std::size_t score_per_chunk = total_score / m_size + 1;
+        std::size_t accumulator = 0;
+        std::size_t target_rank = 0;
+        std::size_t lower_split_point = 0;
+        std::size_t bound_lower_start = 0;
         auto cell_buckets = cell_histogram.begin();
 
         // iterate over the score array and find the point where the score per chunk is exceeded
-        for (size_t i = 0; i < scores.size(); ++ i) {
+        for (std::size_t i = 0; i < scores.size(); ++ i) {
             const auto& cell_bucket = cell_buckets++;
             const Cell cell = cell_bucket->first;
-            const size_t score = scores[i];
+            const std::size_t score = scores[i];
 
             accumulator += score;
             while (accumulator > score_per_chunk) {
-                const size_t split_point = (accumulator - score_per_chunk) / (score / cell_bucket->second);
+                const std::size_t split_point = (accumulator - score_per_chunk) / (score / cell_bucket->second);
 
                 // we have have identified the bounds in which the rank needs to compute locally
                 m_compute_bounds[target_rank][0] = lower_split_point;
@@ -378,7 +381,7 @@ private:
 
                 // determine the cell bounds, i.e. all cells that we need including halo
                 auto& bound = m_cell_bounds[target_rank];
-                const size_t cell_offset = (bound_lower_start % m_halo) + m_halo;
+                const std::size_t cell_offset = (bound_lower_start % m_halo) + m_halo;
                 bound[0] = cell_offset > bound_lower_start ? 0 : bound_lower_start - cell_offset;
                 bound[1] = bound_lower_start;
                 bound[2] = cell + 1;
@@ -399,7 +402,7 @@ private:
 
                 // cell bounds including halo next
                 auto& bound = m_cell_bounds[target_rank];
-                const size_t cell_offset = (bound_lower_start % m_halo) + m_halo;
+                const std::size_t cell_offset = (bound_lower_start % m_halo) + m_halo;
                 bound[0] = cell_offset > bound_lower_start ? 0 : bound_lower_start - cell_offset;
                 bound[1] = bound_lower_start;
                 bound[2] = m_last_cell;
@@ -412,7 +415,7 @@ private:
     }
 
     void redistribute_dataset() {
-        const size_t dimensions = m_data.m_chunk[1];
+        const std::size_t dimensions = m_data.m_chunk[1];
 
         // calculate the send number of points to be transmitted to each rank
         std::vector<int> send_counts(m_size, 0);
@@ -422,8 +425,8 @@ private:
 
         for (std::size_t i = 0; i < m_size; ++i) {
             const auto& bound = m_cell_bounds[i];
-            const size_t lower = m_cell_index.lower_bound(bound[0])->second.first;
-            const size_t upper = m_cell_index.lower_bound(bound[3])->second.first;
+            const std::size_t lower = m_cell_index.lower_bound(bound[0])->second.first;
+            const std::size_t upper = m_cell_index.lower_bound(bound[3])->second.first;
 
             send_displs[i] = lower * dimensions;
             send_counts[i] = upper * dimensions - send_displs[i];
@@ -437,7 +440,7 @@ private:
         }
 
         // calculate the corresponding send and receive counts for the label/order vectors
-        size_t total_recv_items = 0;
+        std::size_t total_recv_items = 0;
         std::vector<int> send_counts_labels(m_size, 0);
         std::vector<int> send_displs_labels(m_size, 0);
         std::vector<int> recv_counts_labels(m_size, 0);
@@ -454,7 +457,7 @@ private:
         // allocate new buffers for the points and the order vectors
         std::vector<data_type, dynamic_aligned_allocator<data_type>>
             point_buffer(total_recv_items, dynamic_aligned_allocator<data_type>(64));
-        std::vector<size_t> order_buffer(total_recv_items / dimensions);
+        std::vector<std::size_t> order_buffer(total_recv_items / dimensions);
 
         // actually transmit the data
         MPI_Alltoallv(
@@ -475,7 +478,7 @@ private:
         m_cell_index.clear();
 
         // assign the new data
-        const hsize_t new_item_count = total_recv_items / dimensions;
+        const std::size_t new_item_count = total_recv_items / dimensions;
         m_data.m_chunk[0] = new_item_count;
         m_cells.resize(new_item_count);
         m_data.m_elements.swap(point_buffer);
@@ -490,19 +493,19 @@ private:
 
     void sort_by_order(Clusters<index_type>& clusters) {
         // allocate the radix buckets
-        const size_t maximum_digit_count = static_cast<size_t>(std::ceil(std::log10(m_data.m_shape[0])));
-        std::vector<std::vector<size_t>> buckets(maximum_digit_count, std::vector<size_t>(RADIX_BUCKETS));
+        const std::size_t maximum_digit_count = static_cast<std::size_t>(std::ceil(std::log10(m_data.m_shape[0])));
+        std::vector<std::vector<std::size_t>> buckets(maximum_digit_count, std::vector<std::size_t>(RADIX_BUCKETS));
 
         // count the items per bucket
-        size_t lower_bound = lower_halo_bound();
-        size_t upper_bound = upper_halo_bound();
-        const size_t items = upper_bound - lower_bound;
+        std::size_t lower_bound = lower_halo_bound();
+        std::size_t upper_bound = upper_halo_bound();
+        const std::size_t items = upper_bound - lower_bound;
 
         #pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < items; ++i) {
-            for (size_t j = 0; j < maximum_digit_count; ++j) {
-                const size_t base  = RADIX_POWERS[j];
-                const size_t digit = m_initial_order[i + lower_bound] / base % RADIX_BUCKETS;
+        for (std::size_t i = 0; i < items; ++i) {
+            for (std::size_t j = 0; j < maximum_digit_count; ++j) {
+                const std::size_t base  = RADIX_POWERS[j];
+                const std::size_t digit = m_initial_order[i + lower_bound] / base % RADIX_BUCKETS;
                 #pragma omp atomic
                 ++buckets[j][digit];
             }
@@ -510,31 +513,31 @@ private:
 
         // accumulate the bucket entries to get the offsets
         #pragma omp parallel for shared(buckets)
-        for (size_t j = 0; j < maximum_digit_count; ++j) {
-            for (size_t f = 1; f < RADIX_BUCKETS; ++f) {
+        for (std::size_t j = 0; j < maximum_digit_count; ++j) {
+            for (std::size_t f = 1; f < RADIX_BUCKETS; ++f) {
                 buckets[j][f] += buckets[j][f-1];
             }
         }
 
         // actually reorder the points out-of-place
-        const hsize_t dimensions = m_data.m_chunk[1];
+        const std::size_t dimensions = m_data.m_chunk[1];
         Clusters<index_type> cluster_buffer(items);
-        std::vector<size_t> order_buffer(items);
+        std::vector<std::size_t> order_buffer(items);
         std::vector<data_type, dynamic_aligned_allocator<data_type>> 
             point_buffer(items * dimensions, dynamic_aligned_allocator<data_type>(64));
 
-        for (size_t j = 0; j < maximum_digit_count; ++j) {
-            const size_t base = RADIX_POWERS[j];
-            const size_t point_offset = lower_bound * dimensions;
+        for (std::size_t j = 0; j < maximum_digit_count; ++j) {
+            const std::size_t base = RADIX_POWERS[j];
+            const std::size_t point_offset = lower_bound * dimensions;
 
             // assign the number to the respective radix bucket
-            for (size_t i = items - 1; i < items; --i) {
-                size_t unit = m_initial_order[i + lower_bound] / base % RADIX_BUCKETS;
-                size_t pos  = --buckets[j][unit];
+            for (std::size_t i = items - 1; i < items; --i) {
+                std::size_t unit = m_initial_order[i + lower_bound] / base % RADIX_BUCKETS;
+                std::size_t pos  = --buckets[j][unit];
 
                 order_buffer[pos] = m_initial_order[i + lower_bound];
                 cluster_buffer[pos] = clusters[i + lower_bound];
-                for (size_t d = 0; d < dimensions; ++d) {
+                for (std::size_t d = 0; d < dimensions; ++d) {
                     point_buffer[pos * dimensions + d] = m_data.m_elements[i * dimensions + d + point_offset];
                 }
             }
@@ -750,13 +753,13 @@ public:
     }
 
     #ifdef WITH_MPI
-    size_t lower_halo_bound() const {
-        size_t lower = m_cell_index.lower_bound(m_cell_bounds[m_rank][1])->second.first;
+    std::size_t lower_halo_bound() const {
+        std::size_t lower = m_cell_index.lower_bound(m_cell_bounds[m_rank][1])->second.first;
         return lower - m_compute_bounds[m_rank][0];
     }
 
-    size_t upper_halo_bound() const {
-        size_t upper = m_cell_index.lower_bound(m_cell_bounds[m_rank][2])->second.first;
+    std::size_t upper_halo_bound() const {
+        std::size_t upper = m_cell_index.lower_bound(m_cell_bounds[m_rank][2])->second.first;
         return upper - m_compute_bounds[m_rank][1];
     }
 
@@ -788,21 +791,21 @@ public:
         return cuts;
     }
     #else
-    size_t lower_halo_bound() const {
+    std::size_t lower_halo_bound() const {
         return 0;
     }
 
-    size_t upper_halo_bound() const {
+    std::size_t upper_halo_bound() const {
         return m_data.m_chunk[0];
     }
     #endif
 
-    inline Cell cell_of(size_t index) const {
+    inline Cell cell_of(std::size_t index) const {
         return m_cells[index];
     }
 
     std::vector<index_type> get_neighbors(const Cell cell) const {
-        const hsize_t dimensions = m_data.m_chunk[1];
+        const std::size_t dimensions = m_data.m_chunk[1];
 
         // allocate some space for the neighboring cells, be pessimistic and reserve 3^dims for possibly all neighbors
         Cells neighboring_cells;
@@ -810,15 +813,15 @@ public:
         neighboring_cells.push_back(cell);
 
         // cell accumulators
-        size_t cells_in_lower_space = 1;
-        size_t cells_in_current_space = 1;
-        size_t number_of_points = m_cell_index.find(cell)->second.second;
+        std::size_t cells_in_lower_space = 1;
+        std::size_t cells_in_current_space = 1;
+        std::size_t number_of_points = m_cell_index.find(cell)->second.second;
 
         // fetch all existing neighboring cells
-        for (size_t d : m_swapped_dimensions) {
+        for (std::size_t d : m_swapped_dimensions) {
             cells_in_current_space *= m_cell_dimensions[d];
 
-            for (size_t i = 0, end = neighboring_cells.size(); i < end; ++i) {
+            for (std::size_t i = 0, end = neighboring_cells.size(); i < end; ++i) {
                 const Cell current_cell = neighboring_cells[i];
 
                 // check "left" neighbor - a.k.a the cell in the current dimension that has a lower number
@@ -843,7 +846,7 @@ public:
         std::vector<index_type> neighboring_points;
         neighboring_points.reserve(number_of_points);
 
-        for (size_t neighbor_cell : neighboring_cells) {
+        for (std::size_t neighbor_cell : neighboring_cells) {
             const auto found = m_cell_index.find(neighbor_cell);
             // skip empty cells
             if (found == m_cell_index.end()) {
@@ -885,21 +888,20 @@ public:
             std::vector<index_type>& min_points_area,
             index_type& count) const {
         
-	const size_t dimensions = m_data.m_chunk[1];
-    
+	const std::size_t dimensions = m_data.m_chunk[1];
     
 	Cluster<index_type> cluster_label = m_global_point_offset + point_index + 1;
 
-	size_t n = neighboring_points.size();
+	std::size_t n = neighboring_points.size();
 
 	min_points_area = std::vector<index_type>(n, NOT_VISITED<index_type>);
 
         // iterate through all neighboring points and check whether they are in range
-        for (size_t i = 0; i < neighboring_points.size(); i++) {
+        for (std::size_t i = 0; i < neighboring_points.size(); i++) {
             data_type offset = 0.0;
 
             // determine euclidean distance to other point
-            for (size_t d = 0; d < dimensions; ++d) {
+            for (std::size_t d = 0; d < dimensions; ++d) {
                 auto coord = m_data.m_elements[point_index*dimensions+d];
                 auto ocoord = m_data.m_elements[neighboring_points[i]*dimensions+d];
 
@@ -925,7 +927,7 @@ public:
     }
 
     void recover_initial_order(Clusters<index_type>& clusters) {
-        const hsize_t dimensions = m_data.m_chunk[1];
+        const std::size_t dimensions = m_data.m_chunk[1];
 
         #ifdef WITH_MPI
         #ifdef WITH_OUTPUT
@@ -948,12 +950,12 @@ public:
         std::vector<int> recv_counts(m_size, 0);
         std::vector<int> recv_displs(m_size, 0);
 
-        const size_t lower_bound = lower_halo_bound();
-        const size_t upper_bound = upper_halo_bound();
-        const size_t items = upper_bound - lower_bound;
-        const size_t chunk_size = m_data.m_shape[0] / m_size;
-        const size_t remainder = m_data.m_shape[0] % static_cast<size_t>(m_size);
-        size_t previous_offset = 0;
+        const std::size_t lower_bound = lower_halo_bound();
+        const std::size_t upper_bound = upper_halo_bound();
+        const std::size_t items = upper_bound - lower_bound;
+        const std::size_t chunk_size = m_data.m_shape[0] / m_size;
+        const std::size_t remainder = m_data.m_shape[0] % static_cast<std::size_t>(m_size);
+        std::size_t previous_offset = 0;
         #ifdef WITH_OUTPUT
             if (m_rank == 0) {
                 std::cout << "\tPoints in chunk...    " << std::flush;
@@ -962,11 +964,11 @@ public:
         #endif
 
         // find all the points that have a global index less than each rank's chunk size
-        for (size_t i = 1; i < static_cast<size_t>(m_size) + 1; ++i) {
-            const size_t chunk_end = chunk_size * i + (remainder > i ? i : remainder);
+        for (std::size_t i = 1; i < static_cast<std::size_t>(m_size) + 1; ++i) {
+            const std::size_t chunk_end = chunk_size * i + (remainder > i ? i : remainder);
 
             const auto split_iter = std::lower_bound(m_initial_order.begin(), m_initial_order.begin() + items, chunk_end);
-            size_t split_index = split_iter - m_initial_order.begin();
+            std::size_t split_index = split_iter - m_initial_order.begin();
 
             send_counts[i - 1] = static_cast<int>(split_index - previous_offset);
             send_displs[i - 1] = static_cast<int>(previous_offset);
@@ -999,7 +1001,7 @@ public:
         #endif
 
         // redistribute the dataset to their original owner ranks
-        size_t total_recv_items = 0;
+        std::size_t total_recv_items = 0;
         std::vector<int> send_counts_points(m_size, 0);
         std::vector<int> send_displs_points(m_size, 0);
         std::vector<int> recv_counts_points(m_size, 0);
@@ -1026,10 +1028,9 @@ public:
         #endif
 
         // allocate new buffers for the points and the order vectors
-        //data_type* point_buffer = new data_type[total_recv_items * dimensions];
         std::vector<data_type, dynamic_aligned_allocator<data_type>>
             point_buffer(total_recv_items*dimensions, dynamic_aligned_allocator<data_type>(64));
-        std::vector<size_t> order_buffer(total_recv_items);
+        std::vector<std::size_t> order_buffer(total_recv_items);
         Clusters<index_type> cluster_buffer(total_recv_items);
 
         #ifdef WITH_OUTPUT
@@ -1095,13 +1096,15 @@ public:
             start = omp_get_wtime();
             #endif
         #endif
+
+        const std::size_t order_size = m_initial_order.size();
         // only reordering step needed for non-MPI implementation and final local reordering for MPI version
         // out-of-place rearranging of items
         std::vector<data_type, dynamic_aligned_allocator<data_type>>
-                local_point_buffer(m_initial_order.size()*dimensions,
+                local_point_buffer(order_size*dimensions,
                         dynamic_aligned_allocator<data_type>(64));
-        std::vector<size_t> local_order_buffer(m_initial_order.size());
-        Clusters<index_type> local_cluster_buffer(m_initial_order.size());
+        std::vector<std::size_t> local_order_buffer(order_size);
+        Clusters<index_type> local_cluster_buffer(order_size);
 
         #ifdef WITH_OUTPUT
             #ifdef WITH_MPI
@@ -1125,15 +1128,18 @@ public:
         #endif
 
         #pragma omp parallel for
-        for (size_t i = 0; i < m_initial_order.size(); ++i) {
-            const size_t copy_to = m_initial_order[i] - m_data.m_offset[0];
+        for (std::size_t i = 0; i < order_size; ++i) {
+            const std::size_t copy_to = m_initial_order[i] - m_data.m_offset[0];
+
 
             local_order_buffer[copy_to] = m_initial_order[i];
             local_cluster_buffer[copy_to] = clusters[i];
-            for (size_t d = 0; d < dimensions; ++d) {
+            for (std::size_t d = 0; d < dimensions; ++d) {
                 local_point_buffer[copy_to * dimensions + d] = m_data.m_elements[i * dimensions + d];
             }
         }
+#if defined(WITH_MPI)
+#endif
         #ifdef WITH_OUTPUT
             #ifdef WITH_MPI
             if (m_rank == 0) {

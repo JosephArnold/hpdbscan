@@ -4,15 +4,23 @@ PROJECT(HPDBSCAN)
 # include additional modules
 SET(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/)
 
+#set(CMAKE_CXX_COMPILER "nvcc")
 # set c++ properties
-ENABLE_LANGUAGE(CXX)
+#ENABLE_LANGUAGE(CXX)
+ENABLE_LANGUAGE(CUDA)
 SET(CMAKE_CXX_STANDARD 17)
+SET(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
 # set build options
 #SET(CMAKE_CXX_FLAGS "-Ofast -Wall -Wextra")
 #SET(CMAKE_CXX_FLAGS_DEBUG "-g")
-set(CMAKE_CXX_FLAGS_RELEASE "-Ofast")
+set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -lcudart")
 set(CMAKE_C_FLAGS_RELEASE "-Ofast")
+#target_compile_options(target PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+#                       --generate-line-info
+#                       --use_fast_math
+#                       --relocatable-device-code=true
+#                       >)
 
 # Always output diagnostic colors
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -62,9 +70,10 @@ endif()
 if(USE_SVE)
     set(additional_sources 
         src/spatial_index_sve_i32_f32.cpp
+	src/hello_world.cu
         )
     set_source_files_properties(${additional_sources} 
-        PROPERTIES COMPILE_FLAGS -march=armv8-a+sve)
+        PROPERTIES COMPILE_FLAGS "-march=armv8-a+sve -lcudart")
 endif()
 
 # set up the build targets
