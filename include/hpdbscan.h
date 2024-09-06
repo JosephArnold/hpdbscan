@@ -69,20 +69,22 @@ class HPDBSCAN {
 	const std::size_t dimensions = index.m_data.m_chunk[1];
 	const std::size_t size_of_dataset = index.m_data.m_chunk[0];
 
-        RegionQuery<data_type, index_type> checkquery(dataset, EPS2, dimensions,
-		                                      clusters.data(), m_min_points,
-						      index.m_global_point_offset,
-						      size_of_dataset);
+	RegionQuery<data_type, index_type> checkquery(dataset, EPS2, dimensions,
+                                                      clusters.data(), m_min_points,
+                                                      index.m_global_point_offset,
+                                                      size_of_dataset
+						      );
 
-	std::cout<<"Total number of points "<<(upper-lower)<<std::endl;
-        /*Anyways points are being iterated cell wise You could simply accumulate all points
-        with the same neighbours in a vector.
-        initialise distance matrix
-        Then compute the distance matrix
-        Update the cluster label for all the points */
+	int32_t num_of_threads =  omp_get_max_threads();
+
+	cudaStream_t* streams = (cudaStream_t*)malloc(num_of_threads * sizeof(cudaStream_t));
+
+    // Initialize streams
+        for (int i = 0; i < num_of_threads; i++) {
+            cudaStreamCreate(&streams[i]);
+        }
     // local DBSCAN run
-        uint32_t gpu_count = 0;
-        #pragma omp parallel for schedule(dynamic, 2048) private(points_with_common_nb) firstprivate(previous_cell) reduction(merge: rules) reduction(+:gpu_count)
+        #pragma omp parallel for schedule(dynamic, 2048) private(points_with_common_nb) firstprivate(previous_cell) reduction(merge: rules)
         for (index_type point = lower; point < static_cast<index_type>(upper); ++point) {
             // small optimization, we only perform a neighborhood query if it is a new cell
             Cell current_cell = index.cell_of(point);
@@ -93,32 +95,35 @@ class HPDBSCAN {
             }
             if (current_cell != previous_cell) {
                 std::vector<index_type> neighboring_points;
+		//index_type* neighboring_points;
                 /*first compute the neighbours for the points with common neighbours*/
                 neighboring_points = index.template get_neighbors(previous_cell); //get the neighbours of points_with_common_nb
-                /*compute distance matrix*/
 		size_t n = neighboring_points.size();
+
+		//neighboring_points = checkquery.get_neighbors(previous_cell, &n);
 
                 if (n >= m_min_points) {
 
 		    size_t num_of_Points_with_common_nb = points_with_common_nb.size();
                     std::vector<index_type> count(num_of_Points_with_common_nb, 0);
 		    std::vector<Cluster<index_type>> cluster_label(num_of_Points_with_common_nb);
-		    std::vector<index_type> min_points_area(num_of_Points_with_common_nb * neighboring_points.size(),
+		    std::vector<index_type> min_points_area(num_of_Points_with_common_nb * n,
 				                            NOT_VISITED<index_type>);
                     
+		    int32_t thread_id = omp_get_thread_num();
 		    checkquery.compute_neighbours_gpu(points_with_common_nb,
-                                           neighboring_points,
+                                           neighboring_points.data(),
+					   n,
                                            min_points_area,
                                            count,
                                            cluster_label,
-                                           num_of_Points_with_common_nb);
-                   
+                                           num_of_Points_with_common_nb, &streams[thread_id]);
+
+
 		    /*Update only rules */ 
                     for(uint32_t i = 0; i < num_of_Points_with_common_nb; i++) {
-			
-			auto pt = points_with_common_nb[i];
-			/*You need to have array of cluster labels, array of min_points, array of counts */ 
-                        if (static_cast<size_t>(count[i]) >= m_min_points) {
+		
+                        if ((count[i]) >= m_min_points) {
 
 			    //only points that are its neighbours and which are core points 
 			    auto limit = i * n + n; 
@@ -149,7 +154,6 @@ class HPDBSCAN {
 
             }
         }
-	std::cout<<"Number of calls to GPU "<<gpu_count<<std::endl;
 
         return rules;
     }
