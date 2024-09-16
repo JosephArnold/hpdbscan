@@ -326,11 +326,21 @@ private:
         size_t total_score = 0;
         size_t score_index = 0;
 
-        for (auto const& [key,value] : cell_histogram) {
-            const Cell cell = key;
-            const size_t score = compute_score(cell, cell_histogram);
-            scores[score_index++] = score;
+        std::vector<size_t> keys;
+
+        for(auto& p:cell_histogram) {
+
+            keys.push_back(p.first);
+
+        }
+
+        #pragma omp parallel for schedule(dynamic) reduction(+ : total_score)
+        for (uint64_t i = 0; i < keys.size(); i++) {
+
+            const size_t score = compute_score(keys[i], cell_histogram);
+            scores[i] = score;
             total_score += score;
+
         }
 
         // ...to determine the actual bounds
