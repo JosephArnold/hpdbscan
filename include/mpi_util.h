@@ -16,7 +16,7 @@
 
 #include <cstdint>
 #include <type_traits>
-
+#include <stdexcept>
 #include <mpi.h>
 
 // Mpi Type Case

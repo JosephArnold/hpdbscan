@@ -48,8 +48,8 @@ void compute_neighbours(const int32_t*,
 				int32_t*,
                                 const float*,
                                 const size_t,
-				size_t,
-				size_t,
+				const size_t,
+				const size_t,
 				int32_t, cudaStream_t*);
 
 template <typename data_type, typename index_type>
