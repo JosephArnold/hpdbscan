@@ -70,7 +70,7 @@ endif()
 if(USE_SVE)
     set(additional_sources 
         src/spatial_index_sve_i32_f32.cpp
-	src/hello_world.cu
+	src/region_query.cu
         )
     set_source_files_properties(${additional_sources} 
         PROPERTIES COMPILE_FLAGS "-march=armv8-a+sve -lcudart")
